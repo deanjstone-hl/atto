@@ -1,0 +1,20 @@
+# One run of the BYD collector (ADR-006): read the car once, post to the Worker. Started by
+# atto1-collector.timer. Installed by scripts/owner-steps/77.sh, from a checkout of `deploy`.
+[Unit]
+Description=atto1 BYD collector (reads the car once, posts to atto1.myargus.cc)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/atto
+# The Bitwarden Secrets Manager access token, as `BWS_ACCESS_TOKEN=...` with or without
+# `export`; `set -a` exports it to node and the bws it runs (atto1/87). The four
+# secrets themselves are fetched by name inside run.ts and never reach the environment file.
+# A user unit has no ~/.local/bin on its PATH, and secrets.ts runs `bws` by name: without this
+# the run dies with `spawn bws ENOENT` (atto1/106).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Node's stable fnm alias, not a node-versions/ path: a user unit does not source .zshrc.
+ExecStart=/bin/bash -c 'set -a && . "$HOME/.bws_token" && set +a && exec "$HOME/.local/share/fnm/aliases/default/bin/node" collector/run.ts'
+# The reader needs its own interpreter with pybyd; the installer sets ATTO1_PYTHON and
+# ATTO1_BATTERY_KWH in a drop-in (atto1-collector.service.d/collector.conf).
+StateDirectory=atto1-collector
+TimeoutStartSec=180

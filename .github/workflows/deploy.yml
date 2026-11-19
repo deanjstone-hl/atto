@@ -1,0 +1,109 @@
+name: Deploy
+
+# ADR-004: atto1 changes production only from the deploy branch. A merge to main deploys
+# nothing; scripts/promote.sh (or the owner's approval on the ops hub) moves deploy, and this
+# workflow then applies the D1 migrations and deploys the Worker, the same two package.json
+# scripts the owner ran by hand (argus-config#1048, atto1#58). Those scripts stay as
+# break-glass. Workers have no branch previews, so there is deliberately no pull_request
+# trigger: `wrangler deploy` from a PR would ship unreviewed code to the production Worker.
+#
+# One target, so no path filter: every promotion runs the migrate and deploy, both idempotent.
+# A push whose head commit carries the skip-CI marker runs no workflow. promote.sh refuses
+# such a commit, and docs/deploy-branch.md says how to recover with workflow_dispatch.
+#
+# The ops hub's "Roll back" card (argus#1178) dispatches this workflow at a release tag
+# (`vX.Y.Z`) to redeploy an earlier version without moving `deploy`. The job's checkout is
+# then that tag, and scripts/require-deploy-checkout.sh (told the tag in DEPLOY_ROLLBACK_TAG)
+# accepts it only if `deploy` already held that commit. A dispatch from a branch is still
+# refused. The D1 migrations step runs too: at an older tag it finds nothing new to apply.
+# A rollback works only for a release cut after this change, since an older tag carries the
+# old workflow, which skips the dispatch.
+#
+# Repository secrets (the owner set them once from Secrets Manager): CLOUDFLARE_API_TOKEN,
+# CLOUDFLARE_ACCOUNT_ID and the five private Worker values ATTO_D1_DATABASE_ID,
+# ATTO_ACCESS_TEAM_DOMAIN, ATTO_ACCESS_AUD, ATTO_INGEST_CLIENT_ID and ATTO_INGEST_OWNER_SUBJECT. They
+# are plain Actions secrets, exposed as environment variables to the two steps that call wrangler,
+# nothing else: this workflow never calls Secrets Manager, so it needs no machine account (the
+# pattern of argus's with-d1-id.sh). The repository is public, so none of those values is in it:
+# scripts/render-wrangler.ts fills the placeholders in wrangler.jsonc from the environment and writes
+# the gitignored config wrangler reads. It has no pull_request trigger, so a fork's pull request never
+# reaches those secrets.
+
+on:
+  push:
+    branches: [deploy]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-atto1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy atto1 → atto1.myargus.cc
+    # A manual dispatch from main (or any other ref) would deploy unpromoted code. A release
+    # tag is the one other ref: the rollback card's dispatch, whose commit the checkout guard
+    # then requires `deploy` to have held.
+    if: >-
+      github.ref == 'refs/heads/deploy'
+      || (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Wrangler is a global tool, not a dependency (ADR-002), and the package.json scripts
+      # call it by name. Install it beside the job, not into the host, and put it on PATH.
+      - name: Install wrangler
+        run: |
+          mkdir -p "$RUNNER_TEMP/wrangler"
+          echo '{"private":true}' > "$RUNNER_TEMP/wrangler/package.json"
+          pnpm --dir "$RUNNER_TEMP/wrangler" add wrangler@4.156.0 --allow-build=esbuild --allow-build=workerd
+          echo "$RUNNER_TEMP/wrangler/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Typecheck and lint
+        run: pnpm run typecheck && pnpm run lint
+
+      - name: Test
+        run: pnpm run test
+
+      # Both scripts start with scripts/require-deploy-checkout.sh: they refuse unless this
+      # checkout is exactly what origin/deploy holds. If deploy moved on since this run
+      # started, they stop, and the newer run deploys.
+      - name: Apply D1 migrations
+        run: pnpm run db:migrate
+        env:
+          # Set only for a rollback; empty means the guard wants HEAD to be `deploy` itself.
+          DEPLOY_ROLLBACK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ATTO_D1_DATABASE_ID: ${{ secrets.ATTO_D1_DATABASE_ID }}
+          ATTO_ACCESS_TEAM_DOMAIN: ${{ secrets.ATTO_ACCESS_TEAM_DOMAIN }}
+          ATTO_ACCESS_AUD: ${{ secrets.ATTO_ACCESS_AUD }}
+          ATTO_INGEST_CLIENT_ID: ${{ secrets.ATTO_INGEST_CLIENT_ID }}
+          ATTO_INGEST_OWNER_SUBJECT: ${{ secrets.ATTO_INGEST_OWNER_SUBJECT }}
+
+      - name: Deploy the Worker
+        run: pnpm run deploy
+        env:
+          # Set only for a rollback; empty means the guard wants HEAD to be `deploy` itself.
+          DEPLOY_ROLLBACK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ATTO_D1_DATABASE_ID: ${{ secrets.ATTO_D1_DATABASE_ID }}
+          ATTO_ACCESS_TEAM_DOMAIN: ${{ secrets.ATTO_ACCESS_TEAM_DOMAIN }}
+          ATTO_ACCESS_AUD: ${{ secrets.ATTO_ACCESS_AUD }}
+          ATTO_INGEST_CLIENT_ID: ${{ secrets.ATTO_INGEST_CLIENT_ID }}
+          ATTO_INGEST_OWNER_SUBJECT: ${{ secrets.ATTO_INGEST_OWNER_SUBJECT }}

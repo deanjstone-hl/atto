@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A collector run</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: var(--background, #f5f7f8);
+      --ink: var(--foreground, #241523);
+      --soft: var(--muted-foreground, #6f6873);
+      --teal: var(--primary, #0a6f75);
+      --rule: var(--border, #cdd4dc);
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --paper: var(--background, #14181c);
+        --ink: var(--foreground, #e8eaed);
+        --soft: var(--muted-foreground, #9aa3ad);
+        --teal: var(--primary, #4fc3c8);
+        --rule: var(--border, #2c343c);
+      }
+    }
+    :root[data-theme="dark"] {
+      --paper: var(--background, #14181c);
+      --ink: var(--foreground, #e8eaed);
+      --soft: var(--muted-foreground, #9aa3ad);
+      --teal: var(--primary, #4fc3c8);
+      --rule: var(--border, #2c343c);
+    }
+    body { font-family: var(--sans); background: var(--paper); color: var(--ink); padding: 16px; }
+    .frame { max-width: 360px; }
+    .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--soft); margin-bottom: 4px; }
+    h1 { font-size: 20px; font-weight: 600; line-height: 1.2; margin-bottom: 8px; }
+    .lede { font-size: 13px; line-height: 1.45; color: var(--soft); margin-bottom: 12px; }
+    .scroll { overflow-x: auto; }
+    svg { width: 100%; min-width: 320px; display: block; }
+    .src { font-size: 11px; line-height: 1.5; color: var(--soft); margin-top: 12px; }
+    .src a { color: var(--teal); }
+    .src code { font-family: var(--mono); font-size: 10px; }
+    .divider { stroke: var(--rule); stroke-width: 1; }
+    .lane { fill: var(--soft); font-family: var(--mono); font-size: 9px; letter-spacing: .12em; }
+    .flow { fill: none; stroke: var(--soft); stroke-width: 1.2; }
+    .dashed { stroke-dasharray: 5,4; }
+    .gate { fill: none; stroke: var(--teal); stroke-width: 1.6; }
+    .mask { fill: var(--paper); }
+    .tag { fill: var(--soft); font-family: var(--mono); font-size: 9px; letter-spacing: .08em; }
+    .tag.teal { fill: var(--teal); }
+    .node { fill: var(--paper); stroke: var(--ink); stroke-width: 1; }
+    .node.focal { fill: color-mix(in srgb, var(--teal) 14%, var(--paper)); stroke: var(--teal); stroke-width: 1.6; }
+    .node.ext { stroke-dasharray: 4,3; }
+    .step:target .node { stroke: var(--teal); stroke-width: 2.6; fill: color-mix(in srgb, var(--teal) 22%, var(--paper)); }
+    .name { fill: var(--ink); font-family: var(--sans); font-size: 12px; font-weight: 600; text-anchor: middle; }
+    .sub { fill: var(--soft); font-family: var(--mono); font-size: 9px; text-anchor: middle; }
+    .note { fill: var(--soft); font-family: var(--sans); font-size: 11px; font-style: italic; }
+    .key { fill: var(--soft); font-family: var(--sans); font-size: 10px; }
+    .head-soft { fill: var(--soft); }
+    .head-teal { fill: var(--teal); }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Process</p>
+    <h1>A collector run</h1>
+    <p class="lede">Every 30 minutes a homelab timer reads the car and posts one reading. State is saved only after the Worker accepts it.</p>
+    <div class="scroll">
+    <svg viewBox="0 0 360 622" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="atto1-ingest-title atto1-ingest-desc">
+      <title id="atto1-ingest-title">A collector run</title>
+      <desc id="atto1-ingest-desc">A homelab timer runs the collector. It reads the car through pybyd on a second BYD account, maps the reading, detects a finished charge and posts to the Worker's ingest path with a service token. The Worker verifies the token and adds rows to D1, and the collector then saves its state.</desc>
+      <defs>
+        <marker id="atto1-ingest-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="head-soft" points="0 0, 8 3, 0 6"/></marker>
+        <marker id="atto1-ingest-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="head-teal" points="0 0, 8 3, 0 6"/></marker>
+      </defs>
+      <path class="flow" d="M 152,80 L 152,104" marker-end="url(#atto1-ingest-arrow)"/>
+      <path class="flow" d="M 152,152 L 152,176" marker-end="url(#atto1-ingest-arrow)"/>
+      <path class="flow" d="M 152,224 L 152,248" marker-end="url(#atto1-ingest-arrow)"/>
+      <path class="flow" d="M 152,296 L 152,320" marker-end="url(#atto1-ingest-arrow)"/>
+      <path class="flow" d="M 152,368 L 152,392" marker-end="url(#atto1-ingest-arrow)"/>
+      <path class="flow" d="M 152,440 L 152,464" marker-end="url(#atto1-ingest-arrow)"/>
+      <path class="flow" d="M 152,512 L 152,536" marker-end="url(#atto1-ingest-arrow)"/>
+      <path class="flow dashed" d="M 288,416 L 316,416 Q 324,416 324,408 L 324,64 Q 324,56 316,56 L 288,56" marker-end="url(#atto1-ingest-arrow)"/>
+      <rect class="mask" x="209" y="374" width="111" height="12" rx="2"/>
+      <text class="tag" x="317" y="383" text-anchor="end">REFUSED: NEXT RUN</text>
+      <g id="step-atto1-ingest-timer" class="step">
+      <rect class="node" x="16" y="32" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="53">Timer fires</text>
+      <text class="sub" x="152" y="68">systemd timer on the homelab, 30 min</text>
+      </g>
+      <g id="step-atto1-ingest-read" class="step">
+      <rect class="node ext" x="16" y="104" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="125">Read the car</text>
+      <text class="sub" x="152" y="140">read-byd.py: pybyd, read-only calls</text>
+      </g>
+      <g id="step-atto1-ingest-map" class="step">
+      <rect class="node" x="16" y="176" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="197">Map the reading</text>
+      <text class="sub" x="152" y="212">map.ts: a range_observations row</text>
+      </g>
+      <g id="step-atto1-ingest-sessions" class="step">
+      <rect class="node" x="16" y="248" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="269">Detect a charge</text>
+      <text class="sub" x="152" y="284">sessions.ts: a charging_sessions row</text>
+      </g>
+      <g id="step-atto1-ingest-post" class="step">
+      <rect class="node" x="16" y="320" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="341">POST /api/ingest/byd</text>
+      <text class="sub" x="152" y="356">run.ts, atto1-ingest service token</text>
+      </g>
+      <g id="step-atto1-ingest-verify" class="step">
+      <rect class="node focal" x="16" y="392" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="413">Verify the service token</text>
+      <text class="sub" x="152" y="428">ingest path only, nothing else</text>
+      </g>
+      <g id="step-atto1-ingest-write" class="step">
+      <rect class="node" x="16" y="464" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="485">Add rows to D1</text>
+      <text class="sub" x="152" y="500">worker/ingest.ts</text>
+      </g>
+      <g id="step-atto1-ingest-state" class="step">
+      <rect class="node" x="16" y="536" width="272" height="48" rx="6"/>
+      <text class="name" x="152" y="557">Save state.json</text>
+      <text class="sub" x="152" y="572">last poll and open charge, after accept</text>
+      </g>
+      <rect class="node" x="8" y="605" width="14" height="10" rx="2"/>
+      <text class="key" x="28" y="614">Step</text>
+      <rect class="node focal" x="64" y="605" width="14" height="10" rx="2"/>
+      <text class="key" x="84" y="614">Gate</text>
+      <rect class="node ext" x="120" y="605" width="14" height="10" rx="2"/>
+      <text class="key" x="140" y="614">Outside</text>
+      <line class="flow" x1="192" y1="610" x2="216" y2="610" marker-end="url(#atto1-ingest-arrow)"/>
+      <text class="key" x="222" y="614">Normal</text>
+      <line class="flow dashed" x1="268" y1="610" x2="292" y2="610" marker-end="url(#atto1-ingest-arrow)"/>
+      <text class="key" x="298" y="614">Refused</text>
+    </svg>
+    </div>
+    <p class="src">Sources: <code>docs/byd-collector.md</code>, <code>collector/</code>, <code>worker/ingest.ts</code>, ADR-006. The reader calls <code>get_vehicles</code> and <code>get_vehicle_realtime</code> and nothing else; it runs on the second BYD account, never the owner's main one. Secrets are read by name from Secrets Manager. Nothing runs it until the owner turns it on. [speculation] Whether the timer is live now was not checked.</p>
+  </div>
+</body>
+</html>

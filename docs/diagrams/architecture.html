@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>atto1 architecture</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: var(--background, #f5f7f8);
+      --ink: var(--foreground, #241523);
+      --soft: var(--muted-foreground, #6f6873);
+      --teal: var(--primary, #0a6f75);
+      --rule: var(--border, #cdd4dc);
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --paper: var(--background, #14181c);
+        --ink: var(--foreground, #e8eaed);
+        --soft: var(--muted-foreground, #9aa3ad);
+        --teal: var(--primary, #4fc3c8);
+        --rule: var(--border, #2c343c);
+      }
+    }
+    :root[data-theme="dark"] {
+      --paper: var(--background, #14181c);
+      --ink: var(--foreground, #e8eaed);
+      --soft: var(--muted-foreground, #9aa3ad);
+      --teal: var(--primary, #4fc3c8);
+      --rule: var(--border, #2c343c);
+    }
+    body { font-family: var(--sans); background: var(--paper); color: var(--ink); padding: 16px; }
+    .frame { max-width: 360px; }
+    .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--soft); margin-bottom: 4px; }
+    h1 { font-size: 20px; font-weight: 600; line-height: 1.2; margin-bottom: 8px; }
+    .lede { font-size: 13px; line-height: 1.45; color: var(--soft); margin-bottom: 12px; }
+    .scroll { overflow-x: auto; }
+    svg { width: 100%; min-width: 320px; display: block; }
+    .src { font-size: 11px; line-height: 1.5; color: var(--soft); margin-top: 12px; }
+    .src a { color: var(--teal); }
+    .src code { font-family: var(--mono); font-size: 10px; }
+    .divider { stroke: var(--rule); stroke-width: 1; }
+    .lane { fill: var(--soft); font-family: var(--mono); font-size: 9px; letter-spacing: .12em; }
+    .flow { fill: none; stroke: var(--soft); stroke-width: 1.2; }
+    .dashed { stroke-dasharray: 5,4; }
+    .gate { fill: none; stroke: var(--teal); stroke-width: 1.6; }
+    .mask { fill: var(--paper); }
+    .tag { fill: var(--soft); font-family: var(--mono); font-size: 9px; letter-spacing: .08em; }
+    .tag.teal { fill: var(--teal); }
+    .node { fill: var(--paper); stroke: var(--ink); stroke-width: 1; }
+    .node.focal { fill: color-mix(in srgb, var(--teal) 14%, var(--paper)); stroke: var(--teal); stroke-width: 1.6; }
+    .node.ext { stroke-dasharray: 4,3; }
+    .step:target .node { stroke: var(--teal); stroke-width: 2.6; fill: color-mix(in srgb, var(--teal) 22%, var(--paper)); }
+    .name { fill: var(--ink); font-family: var(--sans); font-size: 12px; font-weight: 600; text-anchor: middle; }
+    .sub { fill: var(--soft); font-family: var(--mono); font-size: 9px; text-anchor: middle; }
+    .note { fill: var(--soft); font-family: var(--sans); font-size: 11px; font-style: italic; }
+    .key { fill: var(--soft); font-family: var(--sans); font-size: 10px; }
+    .head-soft { fill: var(--soft); }
+    .head-teal { fill: var(--teal); }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture</p>
+    <h1>atto1 architecture</h1>
+    <p class="lede">One Cloudflare Worker with static assets, behind Access, over D1. The BYD collector posts readings through its own service token.</p>
+    <div class="scroll">
+    <svg viewBox="0 0 360 488" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="atto1-arch-title atto1-arch-desc">
+      <title id="atto1-arch-title">atto1 architecture</title>
+      <desc id="atto1-arch-desc">The owner's browser signs in through Cloudflare Access and reaches the atto1 Worker, which serves the built app and reads and adds rows in D1. The BYD collector on the homelab reads the car through a second BYD account and posts to the Worker's ingest path with an Access service token.</desc>
+      <defs>
+        <marker id="atto1-arch-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="head-soft" points="0 0, 8 3, 0 6"/></marker>
+        <marker id="atto1-arch-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="head-teal" points="0 0, 8 3, 0 6"/></marker>
+      </defs>
+      <line class="divider" x1="8" y1="8" x2="352" y2="8"/>
+      <line class="divider" x1="8" y1="96" x2="352" y2="96"/>
+      <line class="divider" x1="8" y1="184" x2="352" y2="184"/>
+      <line class="divider" x1="8" y1="272" x2="352" y2="272"/>
+      <line class="divider" x1="8" y1="360" x2="352" y2="360"/>
+      <line class="divider" x1="8" y1="448" x2="352" y2="448"/>
+      <text class="lane" x="12" y="22">OUTSIDE</text>
+      <text class="lane" x="12" y="110">CLIENTS</text>
+      <text class="lane" x="12" y="198">CLOUDFLARE</text>
+      <text class="lane" x="12" y="286">WORKER</text>
+      <text class="lane" x="12" y="374">DATA</text>
+      <path class="flow" d="M 268,120 L 268,80" marker-end="url(#atto1-arch-arrow)"/>
+      <path class="flow" d="M 92,168 L 92,208" marker-end="url(#atto1-arch-arrow)"/>
+      <path class="flow" d="M 268,168 L 268,208" marker-end="url(#atto1-arch-arrow)"/>
+      <path class="flow" d="M 92,256 L 92,296" marker-end="url(#atto1-arch-arrow)"/>
+      <path class="flow" d="M 168,320 L 192,320" marker-end="url(#atto1-arch-arrow)"/>
+      <path class="flow" d="M 92,344 L 92,384" marker-end="url(#atto1-arch-arrow)"/>
+      <rect class="mask" x="271" y="102" width="37" height="12" rx="2"/>
+      <text class="tag" x="274" y="111">READS</text>
+      <rect class="mask" x="95" y="190" width="49" height="12" rx="2"/>
+      <text class="tag" x="98" y="199">SIGN-IN</text>
+      <rect class="mask" x="178" y="190" width="87" height="12" rx="2"/>
+      <text class="tag" x="262" y="199" text-anchor="end">SERVICE TOKEN</text>
+      <rect class="mask" x="95" y="366" width="74" height="12" rx="2"/>
+      <text class="tag" x="98" y="375">READS, ADDS</text>
+      <g id="step-atto1-arch-byd" class="step">
+      <rect class="node ext" x="192" y="32" width="152" height="48" rx="6"/>
+      <text class="name" x="268" y="53">BYD cloud</text>
+      <text class="sub" x="268" y="68">second account, read-only</text>
+      </g>
+      <g id="step-atto1-arch-browser" class="step">
+      <rect class="node ext" x="16" y="120" width="152" height="48" rx="6"/>
+      <text class="name" x="92" y="141">Phone, browser</text>
+      <text class="sub" x="92" y="156">owner</text>
+      </g>
+      <g id="step-atto1-arch-collector" class="step">
+      <rect class="node" x="192" y="120" width="152" height="48" rx="6"/>
+      <text class="name" x="268" y="141">BYD collector</text>
+      <text class="sub" x="268" y="156">homelab timer, 30 min</text>
+      </g>
+      <g id="step-atto1-arch-access" class="step">
+      <rect class="node" x="16" y="208" width="328" height="48" rx="6"/>
+      <text class="name" x="180" y="229">Cloudflare Access</text>
+      <text class="sub" x="180" y="244">sign-in, or the ingest token</text>
+      </g>
+      <g id="step-atto1-arch-worker" class="step">
+      <rect class="node focal" x="16" y="296" width="152" height="48" rx="6"/>
+      <text class="name" x="92" y="317">atto1 Worker</text>
+      <text class="sub" x="92" y="332">verifies the Access token</text>
+      </g>
+      <g id="step-atto1-arch-assets" class="step">
+      <rect class="node" x="192" y="296" width="152" height="48" rx="6"/>
+      <text class="name" x="268" y="317">Static assets</text>
+      <text class="sub" x="268" y="332">the built React app</text>
+      </g>
+      <g id="step-atto1-arch-d1" class="step">
+      <rect class="node ext" x="16" y="384" width="152" height="48" rx="6"/>
+      <text class="name" x="92" y="405">D1 database</text>
+      <text class="sub" x="92" y="420">SQLite, migrations/</text>
+      </g>
+      <rect class="node" x="8" y="471" width="14" height="10" rx="2"/>
+      <text class="key" x="28" y="480">Step</text>
+      <rect class="node focal" x="64" y="471" width="14" height="10" rx="2"/>
+      <text class="key" x="84" y="480">This repo</text>
+      <rect class="node ext" x="147" y="471" width="14" height="10" rx="2"/>
+      <text class="key" x="167" y="480">Outside</text>
+      <line class="flow" x1="219" y1="476" x2="243" y2="476" marker-end="url(#atto1-arch-arrow)"/>
+      <text class="key" x="249" y="480">Calls</text>
+    </svg>
+    </div>
+    <p class="src">Sources: <code>README.md</code> (Status, Stack, BYD collector), <code>docs/byd-collector.md</code>, <code>worker/index.ts</code>, <code>docs/decisions/adr-005-d1-worker-behind-access.md</code>. The Worker verifies Access tokens on every request, serves the built app and exposes one ingest path for the collector token. Private ids and the Access team domain live in Secrets Manager and are not drawn.</p>
+  </div>
+</body>
+</html>

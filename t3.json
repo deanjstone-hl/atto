@@ -1,0 +1,19 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "scripts": [
+    {
+      "name": "Install dependencies",
+      "command": "pnpm install --frozen-lockfile --prefer-offline",
+      "icon": "configure",
+      "runOnWorktreeCreate": true
+    },
+    {
+      "name": "Dev",
+      "command": "pnpm run dev",
+      "icon": "play",
+      "runOnWorktreeCreate": false,
+      "previewUrl": "http://localhost:5173",
+      "autoOpenPreview": true
+    }
+  ]
+}

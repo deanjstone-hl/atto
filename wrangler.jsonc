@@ -1,0 +1,56 @@
+// atto1 Worker (ADR-005): serves the built app from ./dist and the API over D1, behind
+// Cloudflare Access. Nothing here is live until a promotion runs deploy.yml (or the owner runs
+// the break-glass commands in docs/deploy-branch.md from a checkout of `deploy`).
+//
+// This file is public and holds no private value (atto1/104, atto1/108). Each name between double
+// at-signs below is the name of an Actions secret and of a Bitwarden Secrets Manager secret (the
+// `<REPO>_<KEY>` layout of argus-config/1414). scripts/render-wrangler.ts fills them at deploy
+// time from the environment into the gitignored wrangler.deploy.jsonc, which `pnpm run db:migrate` and
+// `pnpm run deploy` pass to wrangler with --config. Deployed as it stands, the Worker would
+// refuse every request: the placeholders are not a team domain, an audience or a client id.
+{
+  "name": "atto1",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+
+  // Only the custom domain reaches the Worker, and Cloudflare Access is attached to it.
+  // A workers.dev or preview URL would bypass Access's edge check; the Worker would still
+  // refuse it (worker/access.ts), but there is no reason to expose one.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "atto1.myargus.cc", "custom_domain": true }],
+
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // The Worker checks the Access token on every request, assets included.
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "atto1",
+      // `wrangler d1 create atto1` prints it (atto1/72).
+      "database_id": "@@ATTO_D1_DATABASE_ID@@",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Not secrets, but private: they name the owner's Cloudflare account. The Worker refuses
+  // every request (503) while one is empty or not a team domain.
+  "vars": {
+    // `<team>.cloudflareaccess.com`, from Zero Trust > Settings > Custom Pages.
+    "ACCESS_TEAM_DOMAIN": "@@ATTO_ACCESS_TEAM_DOMAIN@@",
+    // The application's Audience (AUD) tag, from Zero Trust > Access > Applications.
+    "ACCESS_AUD": "@@ATTO_ACCESS_AUD@@",
+
+    // The BYD collector's Access service token (ADR-006, docs/byd-collector.md): the
+    // `atto1-ingest` token's Client ID (Zero Trust > Access > Service credentials; the same
+    // secret the collector reads) and the owner's Access `sub`, shown by /api/me when signed in.
+    // While either is empty the Worker refuses every service token.
+    "INGEST_CLIENT_ID": "@@ATTO_INGEST_CLIENT_ID@@",
+    "INGEST_OWNER_SUBJECT": "@@ATTO_INGEST_OWNER_SUBJECT@@"
+  }
+}

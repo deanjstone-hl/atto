@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+.output/
+
+# Environment — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# Editor and OS
+.DS_Store
+*.log
+.vscode/settings.json
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Wrangler (Cloudflare)
+.wrangler/
+# Rendered from wrangler.jsonc at deploy time: holds the private values (atto1/104)
+wrangler.deploy.jsonc
+__pycache__/
+*.pyc

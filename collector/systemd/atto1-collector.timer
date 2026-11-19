@@ -1,0 +1,12 @@
+# Every 30 minutes (ADR-006). Each run wakes the car's telematics unit, so this is a
+# battery trade-off: do not shorten it without a reason.
+[Unit]
+Description=atto1 BYD collector, every 30 minutes
+
+[Timer]
+OnCalendar=*:00,30
+RandomizedDelaySec=60
+Persistent=false
+
+[Install]
+WantedBy=timers.target
