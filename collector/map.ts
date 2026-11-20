@@ -1,7 +1,11 @@
 // Turns what read-byd.py prints into what POST /api/ingest/byd accepts (ADR-006).
 // Pure: no network, no clock except the one passed in.
 
-// What the reader prints, and all of it. It never carries location, door or tyre data.
+import type { TriggerEvent } from '../worker/trigger-events.ts'
+
+// What the reader prints, and all of it. It never carries door or tyre data, and it carries
+// the position only when it was run with --with-location, which only a CarPlay-triggered
+// run does (atto/6, ADR-006).
 export type Reading = {
   vin: string
   model_name: string | null
@@ -13,6 +17,9 @@ export type Reading = {
   odometer_km: number | null
   // pybyd's ChargingState as sent: 1 charging, 0 not, 15 "connected" (unreliable), null unknown.
   charge_state: number | null
+  // Present only when the reader was asked for the position and got one.
+  latitude?: number
+  longitude?: number
 }
 
 export type Observation = {
@@ -20,6 +27,10 @@ export type Observation = {
   soc_pct: number
   displayed_range_km: number
   odometer_km?: number
+  // Set on a CarPlay-triggered reading only; the position never without the event.
+  trigger_event?: TriggerEvent
+  latitude?: number
+  longitude?: number
 }
 
 export type VehicleInput = { vin: string; nickname: string; battery_capacity_kwh?: number }
@@ -46,10 +57,25 @@ export function parseReading(input: unknown): Reading {
   ) {
     throw new Error('reading has a missing or mistyped field')
   }
-  return { vin, model_name, online, observed_at, soc_pct, range_km, odometer_km, charge_state }
+  const { latitude, longitude } = raw
+  if (!isNumberOrNull(latitude ?? null) || !isNumberOrNull(longitude ?? null)) {
+    throw new Error('reading has a missing or mistyped field')
+  }
+  const parsed: Reading = { vin, model_name, online, observed_at, soc_pct, range_km, odometer_km, charge_state }
+  if (typeof latitude === 'number' && typeof longitude === 'number') {
+    parsed.latitude = latitude
+    parsed.longitude = longitude
+  }
+  return parsed
 }
 
-export function toObservation(reading: Reading, now: Date): Observation | null {
+const isPosition = (latitude: number, longitude: number) =>
+  latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+
+// `event` is set only for a run a CarPlay connect or disconnect triggered: it tags the
+// reading, and only then does the reading carry the car's position. A position the Worker
+// would refuse (out of range) is dropped, so the reading and its tag still go through.
+export function toObservation(reading: Reading, now: Date, event?: TriggerEvent): Observation | null {
   const { soc_pct, range_km, odometer_km } = reading
   if (soc_pct === null || range_km === null) return null
   const soc = Math.round(soc_pct)
@@ -62,6 +88,14 @@ export function toObservation(reading: Reading, now: Date): Observation | null {
     displayed_range_km: range,
   }
   if (odometer_km !== null && odometer_km >= 0) observation.odometer_km = Math.round(odometer_km)
+  if (event !== undefined) {
+    observation.trigger_event = event
+    const { latitude, longitude } = reading
+    if (latitude !== undefined && longitude !== undefined && isPosition(latitude, longitude)) {
+      observation.latitude = latitude
+      observation.longitude = longitude
+    }
+  }
   return observation
 }
 

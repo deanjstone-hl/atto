@@ -6,6 +6,8 @@ import { execFile } from 'node:child_process'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import type { TriggerEvent } from '../worker/trigger-events.ts'
+import { fileLastRun } from './last-run.ts'
 import { parseReading, toObservation, toVehicle, type Reading } from './map.ts'
 import { loadSecrets, type Exec } from './secrets.ts'
 import { advance, emptyState, type SessionState } from './sessions.ts'
@@ -13,7 +15,8 @@ import { advance, emptyState, type SessionState } from './sessions.ts'
 const CHARGING = 1
 
 export type RunDeps = {
-  readCar: () => Promise<Reading>
+  // `withLocation` is true only for a run a CarPlay connect or disconnect triggered (atto/6).
+  readCar: (withLocation: boolean) => Promise<Reading>
   loadState: () => Promise<SessionState>
   saveState: (state: SessionState) => Promise<void>
   post: (payload: Record<string, unknown>) => Promise<{ status: number }>
@@ -22,11 +25,18 @@ export type RunDeps = {
   log: (message: string) => void
 }
 
-export async function runOnce(deps: RunDeps): Promise<void> {
-  const reading = await deps.readCar()
+export type RunOptions = {
+  // The event that triggered this run. Set, the reading is tagged with it and carries the
+  // car's position; unset (the timer), it carries neither.
+  event?: TriggerEvent
+}
+
+export async function runOnce(deps: RunDeps, options: RunOptions = {}): Promise<void> {
+  const { event } = options
+  const reading = await deps.readCar(event !== undefined)
   const state = await deps.loadState()
 
-  const observation = toObservation(reading, deps.now())
+  const observation = toObservation(reading, deps.now(), event)
   if (observation === null) {
     deps.log('the car sent no charge or range; nothing to send')
     return
@@ -54,26 +64,32 @@ export async function runOnce(deps: RunDeps): Promise<void> {
   deps.log(
     `sent ${observation.soc_pct}% / ${observation.displayed_range_km} km, ` +
       (observation.odometer_km === undefined ? 'odometer unknown' : `odometer ${observation.odometer_km} km`) +
+      // Whether a position was read, never the position itself.
+      (event === undefined ? '' : `, tagged ${event}, ${observation.latitude === undefined ? 'no position' : 'position read'}`) +
       (next.session ? `, and a ${next.session.energy_kwh} kWh charging session` : ''),
   )
 }
 
 export type IngestTarget = { baseUrl: string; clientId: string; clientSecret: string }
 
+export type Fetcher = (url: string, init: RequestInit) => Promise<Response>
+
+export const serviceHeaders = (target: IngestTarget): Record<string, string> => ({
+  'content-type': 'application/json',
+  'cf-access-client-id': target.clientId,
+  'cf-access-client-secret': target.clientSecret,
+})
+
 export async function postIngest(
   target: IngestTarget,
   payload: unknown,
-  fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch,
+  fetcher: Fetcher = fetch,
 ): Promise<{ status: number }> {
   const response = await fetcher(`${target.baseUrl.replace(/\/+$/, '')}/api/ingest/byd`, {
     method: 'POST',
     // Access answers a bad token with a redirect to its login page; that is a refusal.
     redirect: 'manual',
-    headers: {
-      'content-type': 'application/json',
-      'cf-access-client-id': target.clientId,
-      'cf-access-client-secret': target.clientSecret,
-    },
+    headers: serviceHeaders(target),
     body: JSON.stringify(payload),
   })
   return { status: response.status }
@@ -105,28 +121,40 @@ export function fileStateStore(path: string) {
 }
 
 const run = promisify(execFile)
-const exec: Exec = async (file, args) => (await run(file, args, { maxBuffer: 1024 * 1024 })).stdout
+export const exec: Exec = async (file, args) => (await run(file, args, { maxBuffer: 1024 * 1024 })).stdout
 
-async function readCar(env: NodeJS.ProcessEnv, username: string, password: string): Promise<Reading> {
+async function readCar(
+  env: NodeJS.ProcessEnv,
+  username: string,
+  password: string,
+  withLocation: boolean,
+): Promise<Reading> {
   const python = env.ATTO1_PYTHON ?? 'python3'
-  const { stdout } = await run(python, [join(import.meta.dirname, 'read-byd.py')], {
+  const args = [join(import.meta.dirname, 'read-byd.py'), ...(withLocation ? ['--with-location'] : [])]
+  const { stdout } = await run(python, args, {
     env: { ...env, BYD_USERNAME: username, BYD_PASSWORD: password },
     timeout: 120_000,
   })
   return parseReading(JSON.parse(stdout))
 }
 
-async function main(): Promise<void> {
-  const env = process.env
+export const stateDirectoryFor = (env: NodeJS.ProcessEnv): string =>
+  env.STATE_DIRECTORY ?? join(env.HOME ?? '.', '.local', 'state', 'atto1-collector')
+
+export const LAST_RUN_FILE = 'last-run.json'
+
+// Everything one run needs, from the environment and Secrets Manager. The timer run and the
+// trigger pick-up share it, so a triggered run is the same run with an event.
+export async function createRunDeps(env: NodeJS.ProcessEnv): Promise<RunDeps> {
   const secrets = await loadSecrets(env, exec)
-  const stateDirectory = env.STATE_DIRECTORY ?? join(env.HOME ?? '.', '.local', 'state', 'atto1-collector')
+  const stateDirectory = stateDirectoryFor(env)
   const store = fileStateStore(join(stateDirectory, 'state.json'))
   const batteryKwh = env.ATTO1_BATTERY_KWH ? Number(env.ATTO1_BATTERY_KWH) : null
   if (batteryKwh !== null && !(batteryKwh > 0)) throw new Error('ATTO1_BATTERY_KWH is not a positive number')
   if (batteryKwh === null) console.warn('ATTO1_BATTERY_KWH is not set: charging sessions are not recorded')
 
-  await runOnce({
-    readCar: () => readCar(env, secrets.bydUsername, secrets.bydPassword),
+  return {
+    readCar: (withLocation) => readCar(env, secrets.bydUsername, secrets.bydPassword, withLocation),
     loadState: () => store.load(),
     saveState: (state) => store.save(state),
     post: (payload) =>
@@ -141,7 +169,18 @@ async function main(): Promise<void> {
     now: () => new Date(),
     config: { nickname: env.ATTO1_NICKNAME ?? 'ATTO 1', batteryKwh },
     log: (message) => console.log(`atto1-collector: ${message}`),
-  })
+  }
+}
+
+async function main(): Promise<void> {
+  const env = process.env
+  const deps = await createRunDeps(env)
+  try {
+    await runOnce(deps)
+  } finally {
+    // Every attempt counts as a run for the trigger pick-up's two-minute spacing.
+    await fileLastRun(join(stateDirectoryFor(env), LAST_RUN_FILE)).save(new Date())
+  }
 }
 
 if (import.meta.main) {

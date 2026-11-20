@@ -30,8 +30,20 @@ describe('parseReading', () => {
   })
 
   it('does not keep fields the reader should never send', () => {
-    const parsed = parseReading({ ...reading(), latitude: -33.8, longitude: 151.2 })
+    const parsed = parseReading({ ...reading(), door_lock: 1, tyre_pressure: 2.5 })
     expect(Object.keys(parsed).sort()).toEqual(Object.keys(reading()).sort())
+  })
+
+  // Only a CarPlay-triggered run asks the reader for the position (atto/6, ADR-006).
+  it('keeps a position only when the reader printed both numbers', () => {
+    expect(parseReading({ ...reading(), latitude: 1.5, longitude: -2.5 })).toMatchObject({ latitude: 1.5, longitude: -2.5 })
+    expect(parseReading({ ...reading(), latitude: null, longitude: null })).not.toHaveProperty('latitude')
+    expect(parseReading({ ...reading(), latitude: 1.5, longitude: null })).not.toHaveProperty('latitude')
+    expect(parseReading(reading())).not.toHaveProperty('latitude')
+  })
+
+  it('refuses a mistyped position rather than guessing', () => {
+    expect(() => parseReading({ ...reading(), latitude: '1.5', longitude: 2 })).toThrow(/reading/i)
   })
 })
 
@@ -70,6 +82,47 @@ describe('toObservation', () => {
     ['a negative range', { range_km: -1 }],
   ])('stores nothing for %s', (_label, overrides) => {
     expect(toObservation(reading(overrides), now)).toBeNull()
+  })
+})
+
+describe('toObservation for a triggered run (atto/6)', () => {
+  const now = new Date('2026-11-07T02:00:00Z')
+  // 0, 0 is an obvious fake.
+  const located = reading({ latitude: 0, longitude: 0 })
+
+  it('tags the reading with the event and adds the position', () => {
+    expect(toObservation(located, now, 'carplay_connect')).toEqual({
+      observed_at: '2026-11-07T01:00:00.000Z',
+      soc_pct: 53,
+      displayed_range_km: 164,
+      odometer_km: 3447,
+      trigger_event: 'carplay_connect',
+      latitude: 0,
+      longitude: 0,
+    })
+  })
+
+  it('tags a reading that has no position (the GPS read failed) and sends none', () => {
+    const observation = toObservation(reading(), now, 'carplay_disconnect')
+    expect(observation).toMatchObject({ trigger_event: 'carplay_disconnect' })
+    expect(observation).not.toHaveProperty('latitude')
+    expect(observation).not.toHaveProperty('longitude')
+  })
+
+  it('never sends a position for a timer run, whatever the reading holds', () => {
+    const observation = toObservation(located, now)
+    expect(observation).not.toHaveProperty('trigger_event')
+    expect(observation).not.toHaveProperty('latitude')
+    expect(observation).not.toHaveProperty('longitude')
+  })
+
+  it.each([
+    ['a latitude above 90', { latitude: 91, longitude: 0 }],
+    ['a longitude below -180', { latitude: 0, longitude: -181 }],
+  ])('drops %s, keeping the reading and its tag, instead of losing the whole poll to a 422', (_label, position) => {
+    const observation = toObservation(reading(position), now, 'carplay_connect')
+    expect(observation).toMatchObject({ trigger_event: 'carplay_connect', soc_pct: 53 })
+    expect(observation).not.toHaveProperty('latitude')
   })
 })
 

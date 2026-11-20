@@ -40,6 +40,14 @@ describe('loadSecrets', () => {
     expect(calls).toEqual([['bws', 'secret', 'list', '--output', 'json']])
   })
 
+  it('loads only the fields asked for, so the one-minute pick-up never reads the BYD login (atto/6)', async () => {
+    const exec: Exec = async () => JSON.stringify([
+      { key: 'atto1-ingest-client-id', value: 'id.access' },
+      { key: 'atto1-ingest-client-secret', value: 's3cret' },
+    ])
+    expect(await loadSecrets({}, exec, ['clientId', 'clientSecret'])).toEqual({ clientId: 'id.access', clientSecret: 's3cret' })
+  })
+
   it('names the missing secret, and never a value', async () => {
     const exec: Exec = async () => JSON.stringify([{ key: 'atto1-byd-username', value: 'atto@example.test' }])
     const failure = await loadSecrets({}, exec).catch((error: Error) => error)

@@ -13,6 +13,8 @@ const SOURCES: { field: keyof Secrets; env: string; secretName: string }[] = [
   { field: 'clientSecret', env: 'CF_ACCESS_CLIENT_SECRET', secretName: 'atto1-ingest-client-secret' },
 ]
 
+const SECRET_NAMES: Record<keyof Secrets, true> = { bydUsername: true, bydPassword: true, clientId: true, clientSecret: true }
+
 async function bwsValues(exec: Exec): Promise<Map<string, string>> {
   const output = await exec('bws', ['secret', 'list', '--output', 'json'])
   let listing: unknown
@@ -30,9 +32,14 @@ async function bwsValues(exec: Exec): Promise<Map<string, string>> {
   return values
 }
 
-export async function loadSecrets(env: Record<string, string | undefined>, exec: Exec): Promise<Secrets> {
+export async function loadSecrets<Field extends keyof Secrets = keyof Secrets>(
+  env: Record<string, string | undefined>,
+  exec: Exec,
+  fields: readonly Field[] = Object.keys(SECRET_NAMES) as Field[],
+): Promise<Pick<Secrets, Field>> {
   const found: Partial<Secrets> = {}
-  const missing = SOURCES.filter(({ field, env: name }) => {
+  const wanted = SOURCES.filter(({ field }) => (fields as readonly string[]).includes(field))
+  const missing = wanted.filter(({ field, env: name }) => {
     const value = env[name]
     if (value) found[field] = value
     return !value
@@ -48,5 +55,5 @@ export async function loadSecrets(env: Record<string, string | undefined>, exec:
     }
     if (absent.length > 0) throw new Error(`Bitwarden Secrets Manager has no secret named: ${absent.join(', ')}`)
   }
-  return found as Secrets
+  return found as Pick<Secrets, Field>
 }

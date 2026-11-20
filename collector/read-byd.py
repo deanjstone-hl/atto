@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Read the ATTO 1's state from the BYD cloud, once, and print it as JSON (ADR-006).
 
-Read-only. It calls two pybyd methods, get_vehicles and get_vehicle_realtime, and nothing
-else: no command method, no control PIN, no GPS call, no MQTT push. It prints a fixed
-handful of fields, so location, doors and tyres never leave this process.
+Read-only. It calls three pybyd methods, get_vehicles, get_vehicle_realtime and, only with
+--with-location, the client's GPS read, and nothing else: no command method, no control PIN, no MQTT
+push. It prints a fixed handful of fields, so doors and tyres never leave this process. The
+position is read and printed only when the run was triggered from the phone's CarPlay connect
+or disconnect (atto/6, the ADR-006 amendment); the 30-minute timer never asks for it.
 
 Credentials come from BYD_USERNAME and BYD_PASSWORD in the environment (run.ts sets them
 for this one child); they are never printed. Use the second account (`atto1-byd-username`), not
 the owner's: BYD allows one app session per account, and a login here ends it.
 
   read-byd.py           print the reading
+  read-byd.py --with-location
+                        print the reading and the car's position (latitude, longitude);
+                        a failed GPS read prints null for both and still prints the reading
   read-byd.py --audit   print which grant the account holds and which realtime fields came
                         back populated, by name only, for narrowing the grant (ADR-006)
 """
@@ -71,7 +76,7 @@ def scope_names(scopes):
     ]
 
 
-async def main(audit):
+async def main(audit, with_location):
     base_url = os.environ.get("ATTO1_BYD_BASE_URL") or AU_BASE_URL
     config = BydConfig.from_env(
         base_url=base_url,
@@ -125,21 +130,29 @@ async def main(audit):
             )
             return
 
-        print(
-            json.dumps(
-                {
-                    "vin": vehicle.vin,
-                    "model_name": vehicle.model_name or None,
-                    "online": int(realtime.online_state) == 1,
-                    "observed_at": as_iso(realtime.timestamp),
-                    "soc_pct": as_number(realtime.elec_percent),
-                    "range_km": as_number(realtime.endurance_mileage),
-                    "odometer_km": as_number(realtime.total_mileage),
-                    "charge_state": as_number(realtime.charge_state),
-                }
-            )
-        )
+        reading = {
+            "vin": vehicle.vin,
+            "model_name": vehicle.model_name or None,
+            "online": int(realtime.online_state) == 1,
+            "observed_at": as_iso(realtime.timestamp),
+            "soc_pct": as_number(realtime.elec_percent),
+            "range_km": as_number(realtime.endurance_mileage),
+            "odometer_km": as_number(realtime.total_mileage),
+            "charge_state": as_number(realtime.charge_state),
+        }
+        if with_location:
+            try:
+                gps = await client.get_gps_info(vehicle.vin)
+                reading["latitude"] = as_number(gps.latitude)
+                reading["longitude"] = as_number(gps.longitude)
+            except Exception as error:  # the reading is worth more than the position
+                # The class name only: pybyd's message can carry the VIN.
+                print(f"GPS read failed: {type(error).__name__}", file=sys.stderr)
+                reading["latitude"] = None
+                reading["longitude"] = None
+        print(json.dumps(reading))
 
 
 if __name__ == "__main__":
-    asyncio.run(main("--audit" in sys.argv[1:]))
+    arguments = sys.argv[1:]
+    asyncio.run(main("--audit" in arguments, "--with-location" in arguments))

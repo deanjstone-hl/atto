@@ -22,7 +22,7 @@ function setup(overrides: Partial<RunDeps> = {}, initial: SessionState = emptySt
   let saved: SessionState | null = null
   const sent: unknown[] = []
   const deps: RunDeps = {
-    readCar: async () => reading(),
+    readCar: async (_withLocation: boolean) => reading(),
     loadState: async () => initial,
     saveState: async (state) => {
       saved = state
@@ -119,6 +119,58 @@ describe('runOnce', () => {
     })
     await expect(runOnce(deps)).rejects.toThrow('reader failed')
     expect(post).not.toHaveBeenCalled()
+    expect(saved()).toBeNull()
+  })
+})
+
+describe('runOnce for a triggered run (atto/6)', () => {
+  const located = (overrides: Partial<Reading> = {}) => reading({ latitude: 0, longitude: 0, ...overrides })
+
+  it('asks the reader for the position, tags the reading and sends both', async () => {
+    const readCar = vi.fn(async (_withLocation: boolean) => located())
+    const { deps, sent } = setup({ readCar })
+    await runOnce(deps, { event: 'carplay_connect' })
+    expect(readCar).toHaveBeenCalledWith(true)
+    expect(sent[0]).toMatchObject({
+      observation: { trigger_event: 'carplay_connect', latitude: 0, longitude: 0, soc_pct: 53 },
+    })
+  })
+
+  it('does not ask the reader for the position on a timer run', async () => {
+    const readCar = vi.fn(async (_withLocation: boolean) => reading())
+    const { deps, sent } = setup({ readCar })
+    await runOnce(deps)
+    expect(readCar).toHaveBeenCalledWith(false)
+    expect(JSON.stringify(sent)).not.toMatch(/trigger_event|latitude|longitude/)
+  })
+
+  it('still sends the tagged reading when the position could not be read', async () => {
+    const { deps, sent } = setup({ readCar: async () => reading() })
+    await runOnce(deps, { event: 'carplay_disconnect' })
+    expect(sent[0]).toMatchObject({ observation: { trigger_event: 'carplay_disconnect' } })
+    expect(JSON.stringify(sent)).not.toMatch(/latitude|longitude/)
+  })
+
+  it('logs the tag and whether a position was read, never the position', async () => {
+    const log = vi.fn()
+    const { deps } = setup({ log, readCar: async () => located({ latitude: 12.3456, longitude: 65.4321 }) })
+    await runOnce(deps, { event: 'carplay_connect' })
+    const lines = log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(lines).toContain('carplay_connect')
+    expect(lines).toContain('position read')
+    expect(lines).not.toMatch(/12\.3456|65\.4321/)
+  })
+
+  it('logs that no position was read when the reader gave none', async () => {
+    const log = vi.fn()
+    const { deps } = setup({ log })
+    await runOnce(deps, { event: 'carplay_connect' })
+    expect(log.mock.calls.map((call) => String(call[0])).join('\n')).toContain('no position')
+  })
+
+  it('does not record the poll when the Worker refuses it, tagged or not', async () => {
+    const { deps, saved } = setup({ post: async () => ({ status: 503 }) })
+    await expect(runOnce(deps, { event: 'carplay_connect' })).rejects.toThrow(/503/)
     expect(saved()).toBeNull()
   })
 })
