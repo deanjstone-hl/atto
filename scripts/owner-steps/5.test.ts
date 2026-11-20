@@ -93,7 +93,7 @@ function world(seed: Seed) {
       db.close()
     }
   }
-  return { run, query }
+  return { run, query, bin: join(stub, 'bin') }
 }
 
 const OWNER = 'owner-subject-0001'
@@ -232,11 +232,11 @@ describe('scripts/owner-steps/5.sh', () => {
     expect(result.all).toContain(`${OWNER.slice(0, 6)}...`)
   })
 
-  it('fails before touching D1 when Secrets Manager has no database id', () => {
+  it('fails before touching D1 when there is no ~/.bws_token', () => {
     const w = world(duplicate)
     const result = spawnSync('bash', [script], {
       encoding: 'utf8',
-      env: { PATH: process.env.PATH ?? '', HOME: join(tmpdir(), 'atto-5-nohome'), STUB_DB: 'unused' },
+      env: { PATH: `${w.bin}:${process.env.PATH ?? ''}`, HOME: join(tmpdir(), 'atto-5-nohome'), STUB_DB: 'unused' },
     })
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('.bws_token')
