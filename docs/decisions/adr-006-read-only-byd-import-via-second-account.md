@@ -144,7 +144,11 @@ AEDT). The position amends this ADR, which kept location inside the collector.
   `atto1-carplay-phone`, whose client id the Worker holds as `TRIGGER_CLIENT_ID`. That token
   reaches that one path and nothing else (not `/api/ingest/byd`, not the dashboard), and the
   collector's token does not reach it: each token has its own paths, and a token that matches
-  both settings is the collector's. A homelab timer, `atto1-collector-trigger.timer`, asks
+  both settings is the collector's. Like `ingest`, the phone's Access policy (`carplay-trigger`,
+  Service Auth) sits on the whole-hostname `atto1` application, not on a separate application for
+  the path: each application has its own audience tag and the Worker checks the one `ACCESS_AUD`,
+  so a token issued through a path-specific application would fail as `wrong audience`. Access
+  admits the token everywhere on the hostname and the Worker's role check is what limits it. A homelab timer, `atto1-collector-trigger.timer`, asks
   `GET /api/collect/pending` every minute with the collector's token and, when a trigger is
   pending, runs the collector once and posts an acknowledgement (`POST /api/collect/ack`).
   Triggers, acknowledgements and readings are all inserted, never updated (migration `0002`).

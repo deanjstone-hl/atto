@@ -28,18 +28,29 @@ the car, through the second BYD account, and is stored only in the private D1 da
 These are live changes, so they are yours (tracked in
 [atto/7](https://github.com/deanjstone/atto/issues/7)); the code that makes them useful is on `main`.
 
-1. **Let the phone's token through Access, for one path.** The Cloudflare service token
-   `atto1-carplay-phone` exists (its Client ID and Secret are in your Bitwarden vault as
-   `atto1 CarPlay trigger (Access service token)`). Add a Service Auth policy admitting it to an
-   Access application whose destination is only `atto1.myargus.cc/api/collect/trigger`; the more
-   specific destination takes precedence over the whole-hostname `atto1` application. Do **not** add
-   it to the policy that covers `/api/ingest/byd`, and do not add it anywhere else: the Worker
-   would refuse it elsewhere (403), but the Access policy is the first gate.
-2. **Tell the Worker which token is the phone's.** Put the token's Client ID in the Actions
-   secret `ATTO_TRIGGER_CLIENT_ID` and in Secrets Manager under the same name
-   ([public-cutover.md](public-cutover.md)). Do this **before** the next promotion: `deploy.yml`
-   renders `wrangler.jsonc` from the Actions secrets and stops, changing nothing, while one is
-   missing.
+1. **Let the phone's token through Access, then tell the Worker its Client ID.** One command does
+   steps 1 and 2 (the token `atto1-carplay-phone` already exists; this never creates or rotates it):
+
+   ```bash
+   bash scripts/owner-steps/7.sh --dry-run   # reads state, prints every action, changes nothing
+   bash scripts/owner-steps/7.sh
+   ```
+
+   It adds the Access policy `carplay-trigger` (Service Auth, include that token) to the existing
+   `atto1.myargus.cc` application, the way `ingest` admits the collector's token. It must be that
+   application and not a separate one for `/api/collect/trigger`: every Access application has its
+   own audience tag, and the Worker checks the one `ACCESS_AUD` (`worker/access.ts`), so a token
+   issued through a path-specific application would be refused as `wrong audience`. Access then
+   lets the token reach every path, and the Worker is what limits it: the phone token is accepted on
+   `POST /api/collect/trigger` and answered 403 everywhere else, including `/api/ingest/byd`
+   (`worker/collect.test.ts` pins this).
+2. **Tell the Worker which token is the phone's.** The same script reads the token's Client ID from
+   the Bitwarden item `atto1 CarPlay trigger (Access service token)` (the login username) and
+   writes it to the Actions secret `ATTO_TRIGGER_CLIENT_ID` on `deanjstone/atto` and to Secrets
+   Manager under the same name ([public-cutover.md](public-cutover.md)). It must be done
+   **before** the next promotion: `deploy.yml` renders `wrangler.jsonc` from the Actions secrets
+   and stops, changing nothing, while one is missing. It prints no value, and checks by reading
+   back that the policy, the Actions secret and the Secrets Manager key exist.
 3. **Promote** `main` as usual ([deploy-branch.md](deploy-branch.md)). The push to `deploy`
    applies migration `0002_collect_triggers.sql` and deploys the Worker.
 4. **Install the pick-up on the homelab**, from the checkout at `origin/deploy`, after

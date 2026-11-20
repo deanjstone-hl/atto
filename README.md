@@ -113,7 +113,7 @@ The dashboard's Trips card pairs each connect with the next disconnect. Triggers
 one run covers everything pending, and no run starts within two minutes of the last. Setup,
 in order, and the Shortcut's exact settings: [docs/carplay-shortcut.md](docs/carplay-shortcut.md);
 the position amendment: [ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md).
-`bash scripts/owner-steps/6.sh --dry-run` previews the homelab install.
+`bash scripts/owner-steps/7.sh --dry-run` previews the pre-promotion owner step (the Access policy for the phone's token and the `ATTO_TRIGGER_CLIENT_ID` secret); `bash scripts/owner-steps/6.sh --dry-run` previews the homelab install.
 
 ## Scripts
 
