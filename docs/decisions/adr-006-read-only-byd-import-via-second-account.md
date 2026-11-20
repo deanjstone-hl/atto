@@ -58,10 +58,13 @@ account, so a login with the second account does not sign the phone app out
   `wrangler.jsonc`, empty until the owner fills them; while either is empty, every service
   token is refused, as before. This amends ADR-005's "a token without a `sub` is refused": it
   still is, unless it is that one token.
-- **The service token reaches one path.** `POST /api/ingest/byd`, insert-only: it finds the
-  vehicle by (owner, VIN), or takes the owner's only vehicle when that has no VIN (a car
-  added by hand first: [atto/5](https://github.com/deanjstone/atto/issues/5)), or creates it,
-  and adds a reading and, when a charge ended, a session. It never updates or deletes, a repeat of a stored reading or session is reported as
+- **The service token reaches one path.** `POST /api/ingest/byd`, insert-only with one
+  exception: it finds the vehicle by (owner, VIN), or takes the owner's only vehicle when
+  that has no VIN (a car added by hand first,
+  [atto/5](https://github.com/deanjstone/atto/issues/5)) and fills in its VIN, or creates it,
+  and adds a reading and, when a charge ended, a session. Filling a missing VIN is the only
+  change it ever makes to an existing row (never the nickname or any other field), and it
+  never deletes. A repeat of a stored reading or session is reported as
   `duplicate` instead of stored, and every other route (reads, assets, the entity `POST`s)
   answers 403. A signed-in person gets 403 on the ingest path. Rows are owned by
   `INGEST_OWNER_SUBJECT`, never by anything in the body.
