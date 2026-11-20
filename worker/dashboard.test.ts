@@ -64,6 +64,52 @@ describe('loadDashboard', () => {
     expect(result.data.features).toMatchObject([{ name: 'Capacity' }])
   })
 
+  it('picks the vehicle with the latest reading when the owner has more than one (atto/5)', async () => {
+    const handMade = addVehicle(owner, 'Toothless', '2026-01-01T00:00:00.000Z')
+    const collected = addVehicle(owner, 'ATTO 1', '2026-11-20T00:00:00.000Z')
+    addObservation(owner, handMade, '2026-11-17T07:58:00Z')
+    addObservation(owner, collected, '2026-11-20T22:00:28Z')
+
+    const result = await loadDashboard(d1Over(db), owner)
+    if (result.kind !== 'ready') throw new Error('expected ready')
+
+    expect(result.data.vehicle).toMatchObject({ id: collected })
+    expect(result.data.observations.map((entry) => entry.vehicle_id)).toEqual([collected])
+  })
+
+  it('falls back to the oldest vehicle when none has a reading', async () => {
+    const first = addVehicle(owner, 'First', '2026-01-01T00:00:00.000Z')
+    addVehicle(owner, 'Second', '2026-02-01T00:00:00.000Z')
+
+    const result = await loadDashboard(d1Over(db), owner)
+    if (result.kind !== 'ready') throw new Error('expected ready')
+
+    expect(result.data.vehicle).toMatchObject({ id: first })
+  })
+
+  it('prefers a vehicle with a reading over an older one with none', async () => {
+    addVehicle(owner, 'Empty', '2026-01-01T00:00:00.000Z')
+    const read = addVehicle(owner, 'Read', '2026-02-01T00:00:00.000Z')
+    addObservation(owner, read, '2026-03-01T00:00:00Z')
+
+    const result = await loadDashboard(d1Over(db), owner)
+    if (result.kind !== 'ready') throw new Error('expected ready')
+
+    expect(result.data.vehicle).toMatchObject({ id: read })
+  })
+
+  it("ignores another user's newer readings when choosing", async () => {
+    const mine = addVehicle(owner, 'Mine', '2026-01-01T00:00:00.000Z')
+    addObservation(owner, mine, '2026-03-01T00:00:00Z')
+    const theirs = addVehicle(stranger, 'Theirs', '2026-01-01T00:00:00.000Z')
+    addObservation(stranger, theirs, '2026-04-01T00:00:00Z')
+
+    const result = await loadDashboard(d1Over(db), owner)
+    if (result.kind !== 'ready') throw new Error('expected ready')
+
+    expect(result.data.vehicle).toMatchObject({ id: mine })
+  })
+
   it('returns climate_on as a boolean or null', async () => {
     const vehicleId = addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
     addObservation(owner, vehicleId, '2026-03-01T00:00:00Z', 1)
