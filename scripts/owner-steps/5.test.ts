@@ -1,10 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { migratedDatabase } from '../../worker/test-support/sqlite-d1'
 
 // scripts/owner-steps/5.sh merges the collector's duplicate vehicle into the owner's
 // hand-made one (atto/5). These cases run it against a throwaway SQLite file standing in
@@ -13,6 +12,7 @@ import { migratedDatabase } from '../../worker/test-support/sqlite-d1'
 
 const root = join(import.meta.dirname, '../..')
 const script = join(root, 'scripts/owner-steps/5.sh')
+const migrationsDir = join(root, 'migrations')
 const DATABASE_ID = 'fake-d1-id-00000000'
 const VIN = 'LC0CE4CB5S0123456'
 
@@ -52,9 +52,12 @@ function world(seed: Seed) {
   const home = join(stub, 'home')
   const dbPath = join(stub, 'd1.sqlite')
 
-  const source = migratedDatabase()
+  const source = new DatabaseSync(dbPath)
+  source.exec('pragma foreign_keys = on')
+  for (const file of readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort()) {
+    source.exec(readFileSync(join(migrationsDir, file), 'utf8'))
+  }
   seed(source)
-  writeFileSync(dbPath, source.serialize())
   source.close()
 
   write(join(stub, 'bin/wrangler.mjs'), wranglerJs)
