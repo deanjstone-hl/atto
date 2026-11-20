@@ -19,8 +19,7 @@ repository `atto1`, which is archived.
 - **API:** a Cloudflare Worker (`worker/`) that verifies Cloudflare Access tokens on every
   request, reads D1 and adds rows to it (`worker/writes.ts`). It also serves the built app, and
   one path (`POST /api/ingest/byd`) for the BYD collector's service token.
-- **UI:** a dashboard (vehicle status, recent charging sessions, key specs, range trend; for
-  the vehicle with the latest reading) in
+- **UI:** a dashboard (vehicle status, recent charging sessions, key specs, range trend) in
   `src/components/dashboard/`, and entry forms for a vehicle, charging sessions, range
   readings and features in `src/components/entry/`. Entries only add rows; there is no edit
   or delete yet.
@@ -84,8 +83,6 @@ change that adds an id, an address or a fixture.
 A timer on the homelab reads the car through a second BYD account, read-only, and posts the
 reading to the Worker ([ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md),
 [docs/byd-collector.md](docs/byd-collector.md)). Nothing runs it until the owner turns it on.
-The Worker attaches the readings to the vehicle with the car's VIN, or to the owner's only
-vehicle when it has none (it fills the VIN in, never the nickname), else it makes one.
 
 | Variable (collector only) | Meaning |
 |---|---|
