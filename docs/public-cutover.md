@@ -27,6 +27,7 @@ from the environment at deploy time (by hand it falls back to Secrets Manager wi
 | `ATTO_ACCESS_AUD` | Worker var `ACCESS_AUD` |
 | `ATTO_INGEST_CLIENT_ID` | Worker var `INGEST_CLIENT_ID` |
 | `ATTO_INGEST_OWNER_SUBJECT` | Worker var `INGEST_OWNER_SUBJECT` |
+| `ATTO_TRIGGER_CLIENT_ID` | Worker var `TRIGGER_CLIENT_ID`, the phone's CarPlay service token (atto/6; deploy fails closed at the render step while the secret is missing) |
 
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are Actions secrets too. `pnpm run db:migrate` and
 `pnpm run deploy` run `node scripts/render-wrangler.ts`, which writes the gitignored `wrangler.deploy.jsonc`

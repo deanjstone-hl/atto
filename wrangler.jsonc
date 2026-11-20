@@ -51,6 +51,11 @@
     // secret the collector reads) and the owner's Access `sub`, shown by /api/me when signed in.
     // While either is empty the Worker refuses every service token.
     "INGEST_CLIENT_ID": "@@ATTO_INGEST_CLIENT_ID@@",
-    "INGEST_OWNER_SUBJECT": "@@ATTO_INGEST_OWNER_SUBJECT@@"
+    "INGEST_OWNER_SUBJECT": "@@ATTO_INGEST_OWNER_SUBJECT@@",
+
+    // The phone's Access service token (atto/6, docs/carplay-shortcut.md): the `atto1-carplay-phone`
+    // token's Client ID. It may file a CarPlay trigger on /api/collect/trigger and reach nothing
+    // else; it acts as INGEST_OWNER_SUBJECT. While empty the Worker refuses the phone token.
+    "TRIGGER_CLIENT_ID": "@@ATTO_TRIGGER_CLIENT_ID@@"
   }
 }

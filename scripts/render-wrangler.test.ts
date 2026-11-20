@@ -105,6 +105,7 @@ describe('the committed wrangler.jsonc', () => {
       'ATTO_ACCESS_AUD',
       'ATTO_INGEST_CLIENT_ID',
       'ATTO_INGEST_OWNER_SUBJECT',
+      'ATTO_TRIGGER_CLIENT_ID',
     ])
   })
 })

@@ -51,7 +51,7 @@ describe('a workflow a pull request starts', () => {
 
 describe('deploy.yml and the Worker values', () => {
   const deploy = workflows.find(({ name }) => name === 'deploy.yml')!
-  const VALUES = ['ATTO_D1_DATABASE_ID', 'ATTO_ACCESS_TEAM_DOMAIN', 'ATTO_ACCESS_AUD', 'ATTO_INGEST_CLIENT_ID', 'ATTO_INGEST_OWNER_SUBJECT']
+  const VALUES = ['ATTO_D1_DATABASE_ID', 'ATTO_ACCESS_TEAM_DOMAIN', 'ATTO_ACCESS_AUD', 'ATTO_INGEST_CLIENT_ID', 'ATTO_INGEST_OWNER_SUBJECT', 'ATTO_TRIGGER_CLIENT_ID']
 
   it('never calls Secrets Manager: no bws install, no BWS_ACCESS_TOKEN (atto1/108)', () => {
     expect(deploy.code).not.toMatch(/bws|BWS_ACCESS_TOKEN|install-bws/)

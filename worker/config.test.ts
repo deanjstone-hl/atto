@@ -46,13 +46,18 @@ describe('wrangler.jsonc', () => {
 
   it('points at a Worker entry that exists and declares the Access and ingest settings the Worker reads', () => {
     expect(existsSync(join(root, config.main))).toBe(true)
-    expect(Object.keys(config.vars).sort()).toEqual(['ACCESS_AUD', 'ACCESS_TEAM_DOMAIN', 'INGEST_CLIENT_ID', 'INGEST_OWNER_SUBJECT'])
+    expect(Object.keys(config.vars).sort()).toEqual(['ACCESS_AUD', 'ACCESS_TEAM_DOMAIN', 'INGEST_CLIENT_ID', 'INGEST_OWNER_SUBJECT', 'TRIGGER_CLIENT_ID'])
   })
 
   it('names the BYD collector service token and the owner it acts as by Secrets Manager key, never by value (atto1/90, atto1/104)', () => {
     // Empty, the Worker refuses every service token (worker/access.ts), so the collector gets a 401/403.
     expect(config.vars.INGEST_CLIENT_ID).toBe('@@ATTO_INGEST_CLIENT_ID@@')
     expect(config.vars.INGEST_OWNER_SUBJECT).toBe('@@ATTO_INGEST_OWNER_SUBJECT@@')
+  })
+
+  it('names the phone\'s service token by Secrets Manager key too (atto/6)', () => {
+    // Empty, the Worker refuses the phone token, so a CarPlay trigger gets a 401.
+    expect(config.vars.TRIGGER_CLIENT_ID).toBe('@@ATTO_TRIGGER_CLIENT_ID@@')
   })
 
   it('commits no private value: the D1 id, the team domain and the audience are Secrets Manager keys too', () => {
