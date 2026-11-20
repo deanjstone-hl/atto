@@ -24,7 +24,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from pybyd import BydClient, BydConfig  # noqa: E402
-from pybyd.exceptions import BydAuthenticationError  # noqa: E402
+from pybyd.exceptions import BydAuthenticationError, BydEndpointNotSupportedError  # noqa: E402
 
 AU_BASE_URL = "https://dilinkappoversea-au.byd.auto"
 AU_COUNTRY = "AU"
@@ -35,6 +35,13 @@ AU_COUNTRY = "AU"
 # regional node, so an account registered outside Australia needs ATTO1_BYD_BASE_URL and
 # ATTO1_BYD_COUNTRY (default AU).
 NEW_ACCOUNT_CODE = "3008"
+
+# BYD's catch-all "not supported" code. From 12 Nov 2026 the cloud also answers it to a guest
+# account (a car shared through Family and friends) on every request that reaches the car, unless
+# the request declares the account as a guest; pybyd 0.0.80 and later do that from the vehicle
+# list's sharing flag. pybyd 0.0.79 does not, so a collector on 0.0.79 reads the car as
+# "not supported" (atto/3). pybyd's own message carries the VIN, so it is never printed.
+NOT_SUPPORTED_CODE = "1001"
 
 
 def as_number(value):
@@ -88,7 +95,17 @@ async def main(audit):
         if vehicle is None:
             raise SystemExit("the account has no vehicle (is the car authorised to it?)")
 
-        realtime = await client.get_vehicle_realtime(vehicle.vin)
+        try:
+            realtime = await client.get_vehicle_realtime(vehicle.vin)
+        except BydEndpointNotSupportedError as error:
+            raise SystemExit(
+                f"BYD refused the realtime read with code {error.code or NOT_SUPPORTED_CODE} (endpoint not "
+                "supported for this vehicle). The usual cause is the car being shared to this second account: "
+                "since 12 Nov 2026 BYD refuses a shared (guest) account unless pybyd declares it, which needs "
+                "pybyd 0.0.80 or later (re-run scripts/owner-steps/77.sh to update the pin). If the venv is "
+                "already on 0.0.80 or later, the account's grant may exclude live vehicle data: run "
+                "read-byd.py --audit with the owner's approval and check the granted scopes."
+            )
 
         if audit:
             populated = {

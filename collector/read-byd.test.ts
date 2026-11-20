@@ -73,9 +73,13 @@ describe('read-byd.py', () => {
 describe('read-byd.py --audit', () => {
   const STUB = `
 import enum
+import os
 
 class BydAuthenticationError(Exception):
     code = ""
+
+class BydEndpointNotSupportedError(Exception):
+    code = "1001"
 
 class Unit(enum.IntEnum):
     on = 1
@@ -101,20 +105,30 @@ class BydClient:
     async def __aenter__(self): return self
     async def __aexit__(self, *exc): return None
     async def get_vehicles(self): return [Vehicle()]
-    async def get_vehicle_realtime(self, vin): return Realtime()
+    async def get_vehicle_realtime(self, vin):
+        if os.environ.get("STUB_REALTIME_REFUSED"):
+            raise BydEndpointNotSupportedError(
+                f"/vehicleInfo/vehicle/vehicleRealTimeRequest not supported for VIN {vin} (code=1001)"
+            )
+        return Realtime()
 
 class BydConfig:
     @staticmethod
     def from_env(**overrides): return overrides
 `
-  const run = () => {
+  const run = (argv: string[] = ['--audit'], env: Record<string, string> = {}) => {
     const root = mkdtempSync(join(tmpdir(), 'read-byd-'))
     try {
       mkdirSync(join(root, 'pybyd'))
       writeFileSync(join(root, 'pybyd', '__init__.py'), STUB)
-      writeFileSync(join(root, 'pybyd', 'exceptions.py'), 'from pybyd import BydAuthenticationError\n')
-      return spawnSync('python3', ['-I', '-c', "import sys, runpy; sys.path.insert(0, sys.argv[1]); sys.argv = ['read-byd.py', '--audit']; runpy.run_path(sys.argv_path, run_name='__main__')".replace('sys.argv_path', JSON.stringify(join(import.meta.dirname, 'read-byd.py'))), root], {
+      writeFileSync(
+        join(root, 'pybyd', 'exceptions.py'),
+        'from pybyd import BydAuthenticationError, BydEndpointNotSupportedError\n',
+      )
+      const args = JSON.stringify(['read-byd.py', ...argv])
+      return spawnSync('python3', ['-I', '-c', `import sys, runpy; sys.path.insert(0, sys.argv[1]); sys.argv = ${args}; runpy.run_path(${JSON.stringify(join(import.meta.dirname, 'read-byd.py'))}, run_name='__main__')`, root], {
         encoding: 'utf8',
+        env: { ...process.env, ...env },
       })
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -136,5 +150,25 @@ class BydConfig:
     expect(audit.granted_scopes).toEqual([{ code: '1', name: 'Privacy', children: [] }])
     expect(result.stdout).not.toContain('STUBVIN')
   })
-})
 
+  // Code 1001 is BYD's catch-all "not supported". Since 12 Nov 2026 it is also what the cloud
+  // answers a guest account (a car shared through Family and friends) that does not declare
+  // itself, which pybyd 0.0.80 fixes. The run must say so, not dump a traceback.
+  it('turns a refused realtime read (code 1001) into a clear message that names no VIN', () => {
+    const result = run([], { STUB_REALTIME_REFUSED: '1' })
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('1001')
+    expect(result.stderr).toMatch(/shared|guest/i)
+    expect(result.stderr).toContain('pybyd')
+    expect(result.stderr).not.toContain('Traceback')
+    expect(result.stderr).not.toContain('STUBVIN')
+  })
+
+  it('does the same in --audit mode', () => {
+    const result = run(['--audit'], { STUB_REALTIME_REFUSED: '1' })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('1001')
+    expect(result.stderr).not.toContain('STUBVIN')
+  })
+})
