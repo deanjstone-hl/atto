@@ -52,7 +52,8 @@ export async function runOnce(deps: RunDeps): Promise<void> {
   // Only after the Worker took it: a refused poll is read again next run.
   await deps.saveState(next.state)
   deps.log(
-    `sent ${observation.soc_pct}% / ${observation.displayed_range_km} km` +
+    `sent ${observation.soc_pct}% / ${observation.displayed_range_km} km, ` +
+      (observation.odometer_km === undefined ? 'odometer unknown' : `odometer ${observation.odometer_km} km`) +
       (next.session ? `, and a ${next.session.energy_kwh} kWh charging session` : ''),
   )
 }
