@@ -118,7 +118,7 @@ describe('GET /api/dashboard', () => {
     addVehicle(strangerSubject, 'Theirs')
     expect(await (await call('/api/dashboard')).json()).toEqual({
       kind: 'ready',
-      data: { vehicle: null, sessions: [], observations: [], features: [] },
+      data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] },
     })
   })
 

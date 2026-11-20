@@ -3,7 +3,13 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { fixtureFeatures, fixtureObservations, fixtureSessions, fixtureVehicle } from './src/lib/dashboard/fixtures'
+import {
+  fixtureFeatures,
+  fixtureObservations,
+  fixtureSessions,
+  fixtureTripReadings,
+  fixtureVehicle,
+} from './src/lib/dashboard/fixtures'
 
 // `vite dev` has no Worker, no D1 and no Cloudflare Access, so it answers the API itself
 // from the dashboard fixtures. Dev server only (`apply: 'serve'`): the build and the
@@ -18,6 +24,7 @@ function devApi(): Plugin {
         sessions: fixtureSessions.slice(0, 5),
         observations: fixtureObservations,
         features: fixtureFeatures,
+        tripReadings: fixtureTripReadings,
       },
     },
   }

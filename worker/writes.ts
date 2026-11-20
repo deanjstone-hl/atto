@@ -16,6 +16,7 @@ import {
 } from '../src/lib/data-model/validation'
 import type { D1Like } from './d1'
 import { json } from './json'
+import { TRIGGER_EVENTS } from './trigger-events'
 
 const MAX_BODY_CHARACTERS = 16_384
 
@@ -49,6 +50,8 @@ type Entity = {
   // The row belongs to a vehicle, which must be the caller's.
   vehicleScoped: boolean
   fields: Record<string, Field>
+  // Fields only the collector's ingest may set: a signed-in person's POST refuses them.
+  ingestOnly?: readonly string[]
   validate: (input: never) => ValidationErrors<never>
   shape?: (row: Record<string, unknown>) => Record<string, unknown>
 }
@@ -100,7 +103,11 @@ export const ENTITIES = {
       outside_temp_c: { kind: 'number' },
       climate_on: { kind: 'boolean' },
       notes: { kind: 'text' },
+      trigger_event: { kind: 'enum', values: TRIGGER_EVENTS },
+      latitude: { kind: 'number' },
+      longitude: { kind: 'number' },
     },
+    ingestOnly: ['trigger_event', 'latitude', 'longitude'],
     validate: validateRangeObservation,
     // SQLite stores booleans as 0/1; the client gets booleans.
     shape: (row) => ({ ...row, climate_on: row.climate_on === null ? null : row.climate_on === 1 }),
@@ -258,6 +265,9 @@ export async function createRecord(request: Request, db: D1Like, userId: string,
 
   const body = await readObject(request)
   if (body instanceof Response) return body
+
+  const refused = Object.keys(body).filter((key) => (entity.ingestOnly ?? []).includes(key))
+  if (refused.length > 0) return failed(Object.fromEntries(refused.map((key) => [key, `${key} is not a field`])))
 
   const validated = validateRow(name, body)
   if ('errors' in validated) return failed(validated.errors)

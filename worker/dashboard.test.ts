@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RANGE_OBSERVATION_LIMIT, RECENT_SESSION_LIMIT } from '../src/lib/dashboard/types'
+import { RANGE_OBSERVATION_LIMIT, RECENT_SESSION_LIMIT, TRIP_READING_LIMIT } from '../src/lib/dashboard/types'
 import { DashboardLoadError, loadDashboard } from './dashboard'
 import { d1Over, migratedDatabase } from './test-support/sqlite-d1'
 
@@ -40,7 +40,7 @@ describe('loadDashboard', () => {
   it('returns empty data, not an error, when the user has no vehicle', async () => {
     await expect(loadDashboard(d1Over(db), owner)).resolves.toEqual({
       kind: 'ready',
-      data: { vehicle: null, sessions: [], observations: [], features: [] },
+      data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] },
     })
   })
 
@@ -144,6 +144,58 @@ describe('loadDashboard', () => {
     expect(result.data.observations).toHaveLength(RANGE_OBSERVATION_LIMIT)
   })
 
+  describe('trip readings (atto/6)', () => {
+    const addTagged = (userId: string, vehicleId: string, observedAt: string, event: string, position = false) =>
+      db
+        .prepare(
+          `insert into range_observations
+             (user_id, vehicle_id, observed_at, soc_pct, displayed_range_km, trigger_event, latitude, longitude)
+           values (?, ?, ?, 80, 250, ?, ?, ?)`,
+        )
+        .run(userId, vehicleId, observedAt, event, position ? 0.5 : null, position ? -0.5 : null)
+
+    it('returns only the readings a trigger tagged, newest first, with their position', async () => {
+      const vehicleId = addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
+      addObservation(owner, vehicleId, '2026-03-01T00:00:00Z')
+      addTagged(owner, vehicleId, '2026-03-02T00:00:00Z', 'carplay_connect', true)
+      addTagged(owner, vehicleId, '2026-03-02T01:00:00Z', 'carplay_disconnect')
+
+      const result = await loadDashboard(d1Over(db), owner)
+      if (result.kind !== 'ready') throw new Error('expected ready')
+
+      expect(result.data.tripReadings.map((row) => [row.observed_at, row.trigger_event, row.latitude, row.longitude])).toEqual([
+        ['2026-03-02T01:00:00Z', 'carplay_disconnect', null, null],
+        ['2026-03-02T00:00:00Z', 'carplay_connect', 0.5, -0.5],
+      ])
+    })
+
+    it("never returns another vehicle's or another user's tagged readings", async () => {
+      const mine = addVehicle(owner, 'Mine', '2026-01-01T00:00:00.000Z')
+      const other = addVehicle(owner, 'Other', '2026-01-02T00:00:00.000Z')
+      const theirs = addVehicle(stranger, 'Theirs', '2026-01-01T00:00:00.000Z')
+      addTagged(owner, mine, '2026-03-02T00:00:00Z', 'carplay_connect')
+      addObservation(owner, mine, '2026-03-03T00:00:00Z')
+      addTagged(owner, other, '2026-03-01T00:00:00Z', 'carplay_connect')
+      addTagged(stranger, theirs, '2026-03-04T00:00:00Z', 'carplay_connect')
+
+      const result = await loadDashboard(d1Over(db), owner)
+      if (result.kind !== 'ready') throw new Error('expected ready')
+
+      expect(result.data.vehicle).toMatchObject({ id: mine })
+      expect(result.data.tripReadings.map((row) => row.vehicle_id)).toEqual([mine])
+    })
+
+    it('caps them', async () => {
+      const vehicleId = addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
+      for (let index = 0; index < TRIP_READING_LIMIT + 2; index += 1) {
+        addTagged(owner, vehicleId, new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(), 'carplay_connect')
+      }
+      const result = await loadDashboard(d1Over(db), owner)
+      if (result.kind !== 'ready') throw new Error('expected ready')
+      expect(result.data.tripReadings).toHaveLength(TRIP_READING_LIMIT)
+    })
+  })
+
   describe('authorisation', () => {
     it("never returns another user's rows", async () => {
       const theirs = addVehicle(stranger, 'Theirs', '2026-01-01T00:00:00.000Z')
@@ -155,7 +207,7 @@ describe('loadDashboard', () => {
 
       await expect(loadDashboard(d1Over(db), owner)).resolves.toEqual({
         kind: 'ready',
-        data: { vehicle: null, sessions: [], observations: [], features: [] },
+        data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] },
       })
     })
 

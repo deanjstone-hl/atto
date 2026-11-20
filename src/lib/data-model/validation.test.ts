@@ -129,6 +129,33 @@ describe('validateRangeObservation', () => {
     expect(validateRangeObservation(valid)).toEqual({})
   })
 
+  describe('tag and location (atto/6)', () => {
+    const tagged = { ...valid, trigger_event: 'carplay_connect', latitude: 0, longitude: 0 }
+
+    it('accepts a tagged observation, with or without a position', () => {
+      expect(validateRangeObservation(tagged)).toEqual({})
+      expect(validateRangeObservation({ ...valid, trigger_event: 'carplay_disconnect' })).toEqual({})
+    })
+
+    it('rejects a position on an observation with no tag: only a triggered reading may carry one', () => {
+      expect(validateRangeObservation({ ...valid, latitude: 0, longitude: 0 })).toHaveProperty('latitude')
+    })
+
+    it('rejects a latitude without a longitude and the other way round', () => {
+      expect(validateRangeObservation({ ...tagged, longitude: null })).toHaveProperty('longitude')
+      expect(validateRangeObservation({ ...tagged, latitude: null })).toHaveProperty('latitude')
+    })
+
+    it.each([
+      ['latitude', 90.5],
+      ['latitude', -91],
+      ['longitude', 180.5],
+      ['longitude', -181],
+    ])('rejects a %s of %s', (field, value) => {
+      expect(validateRangeObservation({ ...tagged, [field]: value })).toHaveProperty(field)
+    })
+  })
+
   it('rejects a negative displayed range', () => {
     expect(validateRangeObservation({ ...valid, displayed_range_km: -1 })).toHaveProperty(
       'displayed_range_km',

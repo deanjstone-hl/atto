@@ -16,7 +16,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const IDENTITY: Identity = { subject: 'user-1', email: 'owner@example.com' }
 const EMPTY: DashboardResult = {
   kind: 'ready',
-  data: { vehicle: null, sessions: [], observations: [], features: [] },
+  data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] },
 }
 
 // Stands in for the Worker's API at the network boundary.

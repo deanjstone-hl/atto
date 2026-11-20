@@ -300,6 +300,41 @@ describe('which vehicle a reading lands on (atto/5)', () => {
   })
 })
 
+describe('the tag and the position a triggered reading carries (atto/6)', () => {
+  // 0, 0 is an obvious fake; a real position never appears in this repository.
+  const triggered = { ...reading, trigger_event: 'carplay_connect', latitude: 0, longitude: 0 }
+
+  it('stores the event and the position, owned by the owner', async () => {
+    expect((await ingest(body({ observation: triggered }))).status).toBe(201)
+    expect(rows('range_observations')).toMatchObject([
+      { user_id: ownerSubject, trigger_event: 'carplay_connect', latitude: 0, longitude: 0 },
+    ])
+  })
+
+  it('stores a tagged reading with no position (the GPS read failed)', async () => {
+    await ingest(body({ observation: { ...reading, trigger_event: 'carplay_disconnect' } }))
+    expect(rows('range_observations')).toMatchObject([{ trigger_event: 'carplay_disconnect', latitude: null, longitude: null }])
+  })
+
+  it('leaves a timer reading untagged and without a position', async () => {
+    await ingest(body())
+    expect(rows('range_observations')).toMatchObject([{ trigger_event: null, latitude: null, longitude: null }])
+  })
+
+  it.each([
+    ['an unknown event', { ...triggered, trigger_event: 'ignition_on' }],
+    ['a charge event before atto/8 adds it', { ...triggered, trigger_event: 'charge_start' }],
+    ['a position with no event', { ...reading, latitude: 0, longitude: 0 }],
+    ['a latitude with no longitude', { ...reading, trigger_event: 'carplay_connect', latitude: 0 }],
+    ['a latitude above 90', { ...triggered, latitude: 91 }],
+    ['a longitude that is text', { ...triggered, longitude: '0' }],
+  ])('answers 422 for %s and writes nothing', async (_label, observation) => {
+    expect((await ingest(body({ observation }))).status).toBe(422)
+    expect(rows('vehicles')).toEqual([])
+    expect(rows('range_observations')).toEqual([])
+  })
+})
+
 describe('what ingest refuses', () => {
   it.each([
     ['a vehicle with no VIN', { vehicle: { nickname: 'ATTO 1' }, observation: reading }],

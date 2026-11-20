@@ -141,6 +141,18 @@ export function validateRangeObservation(
   ) {
     errors.outside_temp_c = 'Outside temperature must be between -50 and 60 °C'
   }
+  if (isPresent(input.latitude) && !(input.latitude >= -90 && input.latitude <= 90)) {
+    errors.latitude = 'Latitude must be between -90 and 90'
+  }
+  if (isPresent(input.longitude) && !(input.longitude >= -180 && input.longitude <= 180)) {
+    errors.longitude = 'Longitude must be between -180 and 180'
+  }
+  // The database's CHECK says the same: both or neither, and only on a triggered reading.
+  if (isPresent(input.latitude) && !isPresent(input.longitude)) errors.longitude ??= 'A position needs a longitude'
+  if (isPresent(input.longitude) && !isPresent(input.latitude)) errors.latitude ??= 'A position needs a latitude'
+  if ((isPresent(input.latitude) || isPresent(input.longitude)) && !isPresent(input.trigger_event)) {
+    errors.latitude ??= 'Only a triggered reading carries a position'
+  }
   return errors
 }
 

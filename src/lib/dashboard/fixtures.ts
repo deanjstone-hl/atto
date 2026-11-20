@@ -103,6 +103,7 @@ function observation(
   socPct: number,
   displayedRangeKm: number,
   odometerKm: number | null = null,
+  trip: { event: string; latitude?: number; longitude?: number } | null = null,
 ): RangeObservation {
   return {
     ...owned,
@@ -115,6 +116,9 @@ function observation(
     outside_temp_c: null,
     climate_on: null,
     notes: null,
+    trigger_event: trip?.event ?? null,
+    latitude: trip?.latitude ?? null,
+    longitude: trip?.longitude ?? null,
   }
 }
 
@@ -130,6 +134,14 @@ export const fixtureObservations: RangeObservation[] = [
   observation(3, '2026-09-14T07:00:00.000Z', 85, 266),
   observation(2, '2026-09-08T07:00:00.000Z', 100, 315),
   observation(1, '2026-09-01T07:00:00.000Z', 95, 304),
+]
+
+// The readings a CarPlay connect or disconnect triggered (atto/6), newest first. The
+// positions are obvious fakes near 0, 0, never a real place.
+export const fixtureTripReadings: RangeObservation[] = [
+  observation(22, '2026-10-07T07:40:00.000Z', 64, 192, 4890, { event: 'carplay_connect', latitude: 0.02, longitude: 0.02 }),
+  observation(21, '2026-10-06T23:10:00.000Z', 72, 214, 4838, { event: 'carplay_disconnect', latitude: 0.01, longitude: 0.01 }),
+  observation(20, '2026-10-06T22:30:00.000Z', 80, 236, 4812, { event: 'carplay_connect', latitude: 0, longitude: 0 }),
 ]
 
 function feature(

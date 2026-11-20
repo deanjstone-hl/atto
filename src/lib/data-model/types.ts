@@ -77,6 +77,12 @@ export type RangeObservation = Owned &
     outside_temp_c: number | null
     climate_on: boolean | null
     notes: string | null
+    // The event this reading was taken for (`carplay_connect`, `carplay_disconnect`); null
+    // for a timer reading. Set by the collector only (atto/6).
+    trigger_event: string | null
+    // The car's position, on a reading that carries a trigger_event and no other (ADR-006).
+    latitude: number | null
+    longitude: number | null
   }
 
 export type VehicleFeature = Owned &

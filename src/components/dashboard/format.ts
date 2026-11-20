@@ -54,3 +54,13 @@ export function formatDuration(minutes: number): string {
   if (hours === 0) return `${rest}m`
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`
 }
+
+export function formatCoordinates({ latitude, longitude }: { latitude: number; longitude: number }): string {
+  return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+}
+
+// A link the owner opens themselves: nothing here calls a map or geocoding service, so a
+// position leaves the browser only when it is clicked (atto/6).
+export function mapUrl({ latitude, longitude }: { latitude: number; longitude: number }): string {
+  return `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=16/${latitude}/${longitude}`
+}

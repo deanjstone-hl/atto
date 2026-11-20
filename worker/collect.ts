@@ -13,16 +13,7 @@
 import { databaseFailure, failed, readObject, type Fields } from './writes'
 import type { D1Like } from './d1'
 import { json } from './json'
-
-// The events a trigger may carry, and so the tags a reading may carry. The list lives here
-// and not in a CHECK in the migration, so a new event is a code change: atto/8 adds
-// `charge_start` and `charge_stop`, which are reserved and refused until then.
-export const TRIGGER_EVENTS = ['carplay_connect', 'carplay_disconnect'] as const
-export type TriggerEvent = (typeof TRIGGER_EVENTS)[number]
-
-export function isTriggerEvent(value: unknown): value is TriggerEvent {
-  return typeof value === 'string' && (TRIGGER_EVENTS as readonly string[]).includes(value)
-}
+import { isTriggerEvent, TRIGGER_EVENTS } from './trigger-events'
 
 // A pending trigger older than this is not returned: a reading taken now says nothing about
 // where the car was half an hour ago, so tagging it with the old event would mislead.

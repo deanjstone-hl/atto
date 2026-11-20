@@ -9,14 +9,16 @@ import { useDashboard } from '@/hooks/use-dashboard'
 import type { ApiClient } from '@/lib/api'
 import type { Entry } from '@/components/entry/entry'
 import type { DashboardData } from '@/lib/dashboard/types'
+import { buildTrips } from '@/lib/dashboard/trips'
 import { buildKeySpecs, buildRangeTrend, buildVehicleStatus, summariseSessions } from '@/lib/dashboard/shape'
 import { KeySpecsCard } from './key-specs-card'
 import { RangeTrendCard } from './range-trend-card'
 import { RecentSessionsCard } from './recent-sessions-card'
+import { TripsCard } from './trips-card'
 import { VehicleStatusCard } from './vehicle-status-card'
 
 function DashboardSections({ data }: { data: DashboardData }) {
-  const { vehicle, sessions, observations, features } = data
+  const { vehicle, sessions, observations, features, tripReadings } = data
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <VehicleStatusCard status={vehicle ? buildVehicleStatus(vehicle, observations, sessions) : null} />
@@ -27,6 +29,9 @@ function DashboardSections({ data }: { data: DashboardData }) {
         <RecentSessionsCard sessions={summariseSessions(sessions)} />
       </div>
       <KeySpecsCard specs={vehicle ? buildKeySpecs(vehicle, features) : []} />
+      <div className="lg:col-span-3">
+        <TripsCard trips={buildTrips(tripReadings, vehicle?.battery_capacity_kwh ?? null)} />
+      </div>
     </div>
   )
 }

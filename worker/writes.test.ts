@@ -356,6 +356,25 @@ describe('POST /api/charging-sessions', () => {
   })
 })
 
+describe('the collector-only fields on POST /api/range-observations (atto/6)', () => {
+  it.each([
+    ['trigger_event', 'carplay_connect'],
+    ['latitude', 0],
+    ['longitude', 0],
+  ])('refuses %s: only the collector tags a reading or gives it a position', async (field, value) => {
+    const vehicleId = addVehicle(ownerSubject)
+    const response = await post('/api/range-observations', {
+      vehicle_id: vehicleId,
+      soc_pct: 80,
+      displayed_range_km: 330,
+      [field]: value,
+    })
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ fields: { [field]: `${field} is not a field` } })
+    expect(rows('range_observations')).toEqual([])
+  })
+})
+
 describe('POST /api/range-observations', () => {
   const observation = {
     observed_at: '2026-10-07T01:00:00Z',

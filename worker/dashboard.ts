@@ -6,6 +6,7 @@ import type { ChargingSession, RangeObservation, Vehicle, VehicleFeature } from 
 import {
   RANGE_OBSERVATION_LIMIT,
   RECENT_SESSION_LIMIT,
+  TRIP_READING_LIMIT,
   type DashboardResult,
 } from '../src/lib/dashboard/types'
 import type { D1Like } from './d1'
@@ -55,10 +56,10 @@ export async function loadDashboard(db: D1Like, userId: string): Promise<Dashboa
         .all<Vehicle>(),
     )
     if (vehicle === undefined) {
-      return { kind: 'ready', data: { vehicle: null, sessions: [], observations: [], features: [] } }
+      return { kind: 'ready', data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] } }
     }
 
-    const [sessions, observations, features] = await Promise.all([
+    const [sessions, observations, features, tripReadings] = await Promise.all([
       rows<ChargingSession>('charging_sessions', () =>
         db
           .prepare(
@@ -86,11 +87,27 @@ export async function loadDashboard(db: D1Like, userId: string): Promise<Dashboa
           .bind(userId, vehicle.id)
           .all<VehicleFeature>(),
       ),
+      rows<ObservationRow>('range_observations', () =>
+        db
+          .prepare(
+            `select * from range_observations
+             where user_id = ?1 and vehicle_id = ?2 and trigger_event is not null
+             order by observed_at desc limit ?3`,
+          )
+          .bind(userId, vehicle.id, TRIP_READING_LIMIT)
+          .all<ObservationRow>(),
+      ),
     ])
 
     return {
       kind: 'ready',
-      data: { vehicle, sessions, observations: observations.map(observation), features },
+      data: {
+        vehicle,
+        sessions,
+        observations: observations.map(observation),
+        features,
+        tripReadings: tripReadings.map(observation),
+      },
     }
   } catch (error) {
     if (error instanceof SchemaMissing) return { kind: 'schema-missing' }
