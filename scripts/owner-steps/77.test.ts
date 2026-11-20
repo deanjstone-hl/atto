@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 
 const root = join(import.meta.dirname, '../..')
 const script = join(root, 'scripts/owner-steps/77.sh')
-const PYBYD = 'pybyd==0.0.79'
+const PYBYD = 'pybyd==0.0.80'
 
 // Mirrors `uv venv`: an existing directory is an error unless --clear, and --clear empties it.
 const uvStub = [
@@ -208,5 +208,29 @@ describe('scripts/owner-steps/77.sh', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('pre-flight FAILED: node 22.18 or newer')
     expect(existsSync(w.venv)).toBe(false)
+  })
+})
+
+// pybyd 0.0.80 is the first release that declares a guest account (a car shared to the second
+// BYD account) on the requests that reach the car. BYD answers code 1001 to a guest that does
+// not, so a pin below it reads the car as "not supported" (atto/3). Every place that names the
+// pin must agree, or the runbook installs one version and the audit command runs another.
+describe('the pybyd pin', () => {
+  const pins = (file: string) =>
+    [...readFileSync(join(root, file), 'utf8').matchAll(/pybyd==(\d+)\.(\d+)\.(\d+)/g)].map((match) => match[0])
+
+  it('is at or above the first release that declares a guest account', () => {
+    const [major, minor, patch] = PYBYD.replace('pybyd==', '').split('.').map(Number)
+    expect(major * 1_000_000 + minor * 1_000 + patch).toBeGreaterThanOrEqual(80)
+  })
+
+  it.each([
+    'scripts/owner-steps/77.sh',
+    'docs/byd-collector.md',
+    'docs/decisions/adr-006-read-only-byd-import-via-second-account.md',
+  ])('is the same in %s', (file) => {
+    const found = pins(file)
+    expect(found.length).toBeGreaterThan(0)
+    expect(new Set(found)).toEqual(new Set([PYBYD]))
   })
 })

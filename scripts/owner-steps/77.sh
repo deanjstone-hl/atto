@@ -10,7 +10,7 @@
 #
 # What it changes (all under $HOME, nothing as root):
 #   1. Makes ~/.local/share/atto1-collector/venv with uv (~/.local/bin/uv, no ensurepip or
-#      python3-venv needed) and installs pybyd==0.0.79 into it. `uv venv --clear` replaces
+#      python3-venv needed) and installs pybyd==0.0.80 into it. `uv venv --clear` replaces
 #      whatever is at that path, so a re-run over a venv a failed run left behind is safe.
 #   2. Links the service and timer from ~/repos/atto/collector/systemd into
 #      ~/.config/systemd/user, and writes a drop-in with ATTO1_PYTHON and ATTO1_BATTERY_KWH.
@@ -85,7 +85,7 @@ run() {
 }
 
 run "$UV" venv --clear "$VENV"
-run "$UV" pip install --python "$VENV/bin/python" "pybyd==0.0.79"
+run "$UV" pip install --python "$VENV/bin/python" "pybyd==0.0.80"
 run mkdir -p "$UNIT_DIR" "$DROPIN_DIR"
 run ln -sfn "$REPO/collector/systemd/atto1-collector.service" "$UNIT_DIR/atto1-collector.service"
 run ln -sfn "$REPO/collector/systemd/atto1-collector.timer" "$UNIT_DIR/atto1-collector.timer"

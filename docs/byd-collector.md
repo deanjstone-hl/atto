@@ -99,7 +99,7 @@ secrets).
    ```
 
    It checks its pre-flight (including that `~/.local/bin/uv` can make a venv, so the host
-   needs no `python3-venv`), builds the venv with `uv venv --clear` and installs `pybyd==0.0.79`
+   needs no `python3-venv`), builds the venv with `uv venv --clear` and installs `pybyd==0.0.80`
    into it, links the units and enables `atto1-collector.timer`. It is safe to re-run over a
    half-built venv. It changes nothing if a check fails. Without a capacity charging
    sessions are not recorded; readings still are.
@@ -133,7 +133,7 @@ source ~/repos/argus-config/envs/wsl2/bashrc.d/bitwarden.sh
 S=$(bitwarden-session)
 export BYD_USERNAME="$(bw get username 'atto1 BYD second account' --session "$S" --nointeraction)"
 export BYD_PASSWORD="$(bw get password 'atto1 BYD second account' --session "$S" --nointeraction)"
-uv run --no-project --with pybyd==0.0.79 python collector/read-byd.py --audit
+uv run --no-project --with pybyd==0.0.80 python collector/read-byd.py --audit
 ```
 
 A login with the second account does not sign the phone app out.
@@ -143,6 +143,7 @@ A login with the second account does not sign the phone app out.
 | Symptom | Cause |
 |---|---|
 | `code=3008 Wrong email or password` | A new BYD account answers 3008 until it has been signed in to once in the BYD phone app, even with the right password. The second account's 3008 on 7 Nov 2026 cleared after its first phone sign-in (cause inferred, not proven). Sign in to the app once with that account, then retry once; do not retry in a loop. If the account is registered under a country other than Australia, set `ATTO1_BYD_BASE_URL` (e.g. `https://dilinkappoversea-sg.byd.auto`) and `ATTO1_BYD_COUNTRY` (e.g. `SG`) in the service's `collector.conf` drop-in. A known account with a wrong password answers 3002 and counts the tries left. |
+| `BYD refused the realtime read with code 1001` (`BydEndpointNotSupportedError`) | The second account is a guest of the car (shared through Family and friends). Since 12 Nov 2026 BYD answers 1001 to a guest on every request that reaches the car unless the request declares the account as a guest; pybyd 0.0.80 and later do ([pyBYD#81](https://github.com/jkaberg/pyBYD/pull/81)), 0.0.79 does not. Fix: the venv must be on the pinned version, so re-run `scripts/owner-steps/77.sh` from `origin/deploy` (it rebuilds the venv with `uv venv --clear`). If the venv is already on 0.0.80 or later and 1001 persists, the cause is something else (an unsupported model or region, or a grant without live vehicle data): run `read-byd.py --audit` with the owner's approval and read the granted scopes. |
 | `the account has no vehicle` | The ATTO 1 is not authorised to the second account (BYD app > Authorisation management). |
 | `the car sent no charge or range` | The car is offline or asleep; the run sends nothing and tries again in 30 minutes. |
 | `the Worker answered 302` | Access redirected the request: the service token is wrong, expired, or not in the `ingest` policy. |

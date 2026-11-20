@@ -38,7 +38,7 @@ account, so a login with the second account does not sign the phone app out
   `get_vehicle_realtime` and nothing else. It never calls a command method (`RemoteCommand`,
   lock, unlock, climate, charging, windows, lights), never sets or uses a control PIN, never
   calls the GPS endpoint, and keeps MQTT push off. `collector/read-byd.test.ts` fails if the
-  source names any of them. pybyd is pinned (`pybyd==0.0.79`).
+  source names any of them. pybyd is pinned (`pybyd==0.0.80`: the first release that declares a guest account, which BYD requires of a shared car's account since 12 Nov 2026, [atto/3](https://github.com/deanjstone/atto/issues/3); the pin never goes below it).
 - **Fixed fields.** The reader prints eight values: VIN, model name, online flag, the car's
   timestamp, state of charge, range, odometer and pybyd's charge state. Location, doors,
   tyres and the other 130-odd realtime fields never leave the reader's process, so the privacy
