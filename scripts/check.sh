@@ -12,6 +12,9 @@
 #   4. pnpm run test    (NODE_ENV=test: a JIT runner job inherits production from the
 #                        dispatcher unit, homelab#371, and React drops `act` there)
 #
+# The whole run takes the host-wide heavy lock (scripts/heavy-lock.sh, vendored from
+# argus-config; HEAVY_LOCK_TIMEOUT, default 3600 s, then exit 75).
+#
 # On success prints one line: `check: pass <short sha>`. Any failure exits non-zero and
 # names the failing step.
 set -euo pipefail
@@ -19,6 +22,13 @@ set -euo pipefail
 # The root comes from this script's own path, never the caller's cwd: another repo's
 # pre-push gate runs it from its own checkout (atto1#103).
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# One full check at a time per host (argus-config#1506): two overlapping gates made
+# systemd-oomd kill agent scopes. The re-exec waits for the lock, then runs this script
+# with HEAVY_LOCK_HELD=1 so it does not wait again.
+if [ "${HEAVY_LOCK_HELD:-}" != 1 ]; then
+  exec bash "$PWD/scripts/heavy-lock.sh" bash "$PWD/scripts/check.sh" "$@"
+fi
 
 fail() {
   echo "check: FAIL at step $1 ($2)" >&2

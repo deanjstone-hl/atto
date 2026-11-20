@@ -104,7 +104,7 @@ node collector/run.ts   # one run: needs Node 22.18+, pybyd, and the secrets abo
 | `pnpm run build` | `tsc -b && vite build` |
 | `pnpm run lint` | oxlint (type-aware) |
 | `pnpm run typecheck` | `tsc -b` |
-| `pnpm run check` | The one local gate, run before every push to `main` and by CI and, when `main` has no green CI run of the promoted SHA, by Release: bats on the release scripts, lint, build, tests (`scripts/check.sh`). Prints `check: pass <sha>` |
+| `pnpm run check` | The one local gate, run before every push to `main` and by CI and, when `main` has no green CI run of the promoted SHA, by Release: bats on the release scripts, lint, build, tests (`scripts/check.sh`). Takes the host-wide heavy lock first ([argus-config/1506](https://github.com/deanjstone/argus-config/issues/1506)): `scripts/check.sh` re-runs itself through `scripts/heavy-lock.sh`, so one full check runs at a time per host, a queued run prints `waiting for the host lock`, and it exits 75 without running once `HEAVY_LOCK_TIMEOUT` (3600 s) passes; `scripts/heavy-lock.sh` and `heavy-lock.lock` are vendored from argus-config (never edit them; its `scripts/sync-heavy-lock.sh` rewrites both). Prints `check: pass <sha>` |
 | `pnpm test` | Vitest: unit tests, plus migration and Worker tests against in-process SQLite |
 | `pnpm run preview` | Serve the production build |
 | `node collector/run.ts` | One collector run: reads the car, posts to the Worker. Owner-enabled; see above |
