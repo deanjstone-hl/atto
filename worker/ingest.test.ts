@@ -237,22 +237,16 @@ describe('which vehicle a reading lands on (atto/5)', () => {
       id: string
     }).id
 
-  it("attaches to the owner's only vehicle when it has no VIN and fills the VIN in, instead of making a second one", async () => {
+  it("attaches to the owner's only vehicle when it has no VIN, instead of making a second one", async () => {
     const handMade = addVehicle(ownerSubject, 'Toothless', null)
     const response = await ingest(body())
     expect(response.status).toBe(201)
     expect(await response.json()).toMatchObject({ vehicle_id: handMade, observation: 'created' })
-    expect(rows('vehicles')).toMatchObject([{ id: handMade, nickname: 'Toothless', vin: VIN }])
+    expect(rows('vehicles')).toMatchObject([{ id: handMade, nickname: 'Toothless', vin: null }])
     expect(rows('range_observations')).toMatchObject([{ vehicle_id: handMade, soc_pct: 53 }])
   })
 
-  it('never sets or overwrites the nickname of the vehicle it attaches to', async () => {
-    addVehicle(ownerSubject, 'Toothless', null)
-    await ingest(body({ vehicle: { vin: VIN, nickname: 'ATTO 1', battery_capacity_kwh: 30 } }))
-    expect(rows('vehicles')).toMatchObject([{ nickname: 'Toothless', battery_capacity_kwh: null }])
-  })
-
-  it('keeps landing later readings on that vehicle through the VIN it now carries', async () => {
+  it('keeps attaching later readings to that vehicle, never leaving the VIN on a copy', async () => {
     const handMade = addVehicle(ownerSubject, 'Toothless', null)
     await ingest(body())
     await ingest(body({ observation: { ...reading, observed_at: '2026-11-07T01:30:00Z', soc_pct: 52 } }))
