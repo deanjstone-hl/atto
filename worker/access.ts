@@ -19,19 +19,26 @@ export type AccessEnv = {
   // The one Access service token allowed to ingest (ADR-006): its client id, which Access
   // signs into the token's `common_name`. Empty, no service token is accepted.
   INGEST_CLIENT_ID?: string
-  // The Access `sub` of the owner. An ingesting service token writes as this user_id.
+  // The Access `sub` of the owner. Both service tokens act as this user_id.
   // Empty, no service token is accepted.
   INGEST_OWNER_SUBJECT?: string
+  // The phone's Access service token (atto/6): its client id. It may file a collect trigger
+  // and nothing else. Empty, the phone token is refused. Never the same as INGEST_CLIENT_ID:
+  // if they match, the token is the collector's.
+  TRIGGER_CLIENT_ID?: string
 }
 
 export type AccessIdentity = {
   // Access's stable user id (the `sub` claim). Every row is owned by it.
   subject: string
   email: string | null
-  // Set only for the named ingest service token (ADR-006): it is not a person, and
-  // the Worker lets it reach one path only.
-  serviceToken?: true
+  // Set only for a named service token, and says which (ADR-006): it is not a person, and
+  // the Worker lets each reach its own paths only. `ingest` is the BYD collector's;
+  // `trigger` is the phone's (atto/6).
+  serviceToken?: ServiceTokenRole
 }
+
+export type ServiceTokenRole = 'ingest' | 'trigger'
 
 export class AccessDenied extends Error {
   constructor(reason: string) {
@@ -216,12 +223,18 @@ export async function verifyAccess(
     return { subject, email: typeof claims.email === 'string' ? claims.email : null }
   }
 
-  // A service-token JWT has no `sub`. Only the one named in INGEST_CLIENT_ID is accepted,
-  // and it acts as the owner for ingest; any other service token is refused.
-  const clientId = env.INGEST_CLIENT_ID?.trim() ?? ''
+  // A service-token JWT has no `sub`. Only the two named in INGEST_CLIENT_ID and
+  // TRIGGER_CLIENT_ID are accepted, and each acts as the owner on its own paths; any other
+  // service token is refused. The collector's token wins if both are set to one id.
   const ownerSubject = env.INGEST_OWNER_SUBJECT?.trim() ?? ''
-  const named =
-    clientId !== '' && ownerSubject !== '' && typeof claims.common_name === 'string' && timingSafeEqual(claims.common_name, clientId)
-  if (named && ownerSubject.length <= MAX_SUBJECT_LENGTH) return { subject: ownerSubject, email: null, serviceToken: true }
+  const commonName = typeof claims.common_name === 'string' ? claims.common_name : null
+  const named = (configured: string | undefined) => {
+    const clientId = configured?.trim() ?? ''
+    return clientId !== '' && commonName !== null && timingSafeEqual(commonName, clientId)
+  }
+  const role: ServiceTokenRole | null = named(env.INGEST_CLIENT_ID) ? 'ingest' : named(env.TRIGGER_CLIENT_ID) ? 'trigger' : null
+  if (role !== null && ownerSubject !== '' && ownerSubject.length <= MAX_SUBJECT_LENGTH) {
+    return { subject: ownerSubject, email: null, serviceToken: role }
+  }
   throw new AccessDenied('no usable subject')
 }

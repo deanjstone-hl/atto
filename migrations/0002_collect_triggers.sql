@@ -12,7 +12,7 @@
 --
 -- The event list is not a CHECK ... IN (...): SQLite cannot widen a CHECK without rebuilding
 -- the table, and atto/8 adds charge_start and charge_stop. The Worker holds the list
--- (worker/triggers.ts); the database only checks the shape of the name.
+-- (worker/collect.ts); the database only checks the shape of the name.
 
 create table collect_triggers (
   id text primary key not null default (

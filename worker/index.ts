@@ -5,7 +5,15 @@
 // Worker some other way (a misconfigured route, a stray workers.dev URL) is refused
 // rather than served.
 
-import { AccessDenied, AccessNotConfigured, verifyAccess, type AccessDeps, type AccessEnv } from './access'
+import {
+  AccessDenied,
+  AccessNotConfigured,
+  verifyAccess,
+  type AccessDeps,
+  type AccessEnv,
+  type ServiceTokenRole,
+} from './access'
+import { acknowledgeTriggers, fileTrigger, listPending } from './collect'
 import { loadDashboard } from './dashboard'
 import type { D1Like } from './d1'
 import { ingestByd } from './ingest'
@@ -15,6 +23,19 @@ import { createRecord, isEntityName } from './writes'
 export type Env = AccessEnv & {
   DB: D1Like
   ASSETS: { fetch(request: Request): Promise<Response> }
+}
+
+type ServicePath = {
+  role: ServiceTokenRole
+  method: 'GET' | 'POST'
+  run: (request: Request, db: D1Like, ownerId: string) => Promise<Response>
+}
+
+const SERVICE_PATHS: Record<string, ServicePath> = {
+  '/api/ingest/byd': { role: 'ingest', method: 'POST', run: ingestByd },
+  '/api/collect/pending': { role: 'ingest', method: 'GET', run: (_request, db, ownerId) => listPending(db, ownerId) },
+  '/api/collect/ack': { role: 'ingest', method: 'POST', run: acknowledgeTriggers },
+  '/api/collect/trigger': { role: 'trigger', method: 'POST', run: fileTrigger },
 }
 
 export async function handle(request: Request, env: Env, deps: AccessDeps = {}): Promise<Response> {
@@ -36,12 +57,16 @@ export async function handle(request: Request, env: Env, deps: AccessDeps = {}):
 
   const { pathname } = new URL(request.url)
 
-  // The ingest service token is not a person: it reaches the ingest path and nothing else
-  // (ADR-006), and a signed-in person does not use that path.
-  if (pathname === '/api/ingest/byd') {
-    if (!identity.serviceToken) return json({ error: 'forbidden' }, 403)
-    if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405, { allow: 'POST' })
-    return ingestByd(request, env.DB, identity.subject)
+  // A service token is not a person: each reaches its own paths and nothing else (ADR-006),
+  // and a signed-in person uses none of them. The collector's token ingests and reads and
+  // acknowledges the pending triggers; the phone's token files a trigger (atto/6).
+  const servicePath = SERVICE_PATHS[pathname]
+  if (servicePath !== undefined) {
+    if (identity.serviceToken !== servicePath.role) return json({ error: 'forbidden' }, 403)
+    if (request.method !== servicePath.method) {
+      return json({ error: 'method_not_allowed' }, 405, { allow: servicePath.method })
+    }
+    return servicePath.run(request, env.DB, identity.subject)
   }
   if (identity.serviceToken) return json({ error: 'forbidden' }, 403)
 
