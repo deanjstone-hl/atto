@@ -52,31 +52,6 @@ describe('runOnce', () => {
     expect(saved()).toMatchObject({ lastAt: '2026-11-07T01:00:00.000Z' })
   })
 
-  it('logs the odometer it sent, so the log shows what the dashboard should read', async () => {
-    const log = vi.fn()
-    const { deps } = setup({ log, readCar: async () => reading({ soc_pct: 75, range_km: 234, odometer_km: 4624 }) })
-    await runOnce(deps)
-    expect(log).toHaveBeenCalledWith('sent 75% / 234 km, odometer 4624 km')
-  })
-
-  it('logs odometer unknown when the car sent none', async () => {
-    const log = vi.fn()
-    const { deps } = setup({ log, readCar: async () => reading({ odometer_km: null }) })
-    await runOnce(deps)
-    expect(log).toHaveBeenCalledWith('sent 53% / 164 km, odometer unknown')
-  })
-
-  it('logs the odometer before the session it also sent', async () => {
-    const log = vi.fn()
-    const open: SessionState = {
-      lastAt: '2026-11-07T00:30:00.000Z',
-      open: { startedAt: '2026-11-06T22:00:00.000Z', startSoc: 20, lastAt: '2026-11-07T00:30:00.000Z', lastSoc: 60, odometerKm: 3447 },
-    }
-    const { deps } = setup({ log, readCar: async () => reading({ soc_pct: 70 }) }, open)
-    await runOnce(deps)
-    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^sent 70% \/ 164 km, odometer 3447 km, and a [\d.]+ kWh charging session$/))
-  })
-
   it('sends a session in the same request when the poll ends one', async () => {
     const open: SessionState = {
       lastAt: '2026-11-07T00:30:00.000Z',

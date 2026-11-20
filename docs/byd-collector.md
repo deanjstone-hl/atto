@@ -110,7 +110,7 @@ secrets).
    journalctl --user -u atto1-collector.service -n 20 --no-pager
    ```
 
-   Expect `atto1-collector: sent 53% / 164 km, odometer 3447 km` (your numbers; `odometer unknown` when the car sent none). A `code=3008` from BYD on a new account usually means it has not been signed in to on the BYD phone app yet (see Troubleshooting); a 401 from the Worker means steps 2 or 4 are
+   Expect `atto1-collector: sent 53% / 164 km` (your numbers). A `code=3008` from BYD on a new account usually means it has not been signed in to on the BYD phone app yet (see Troubleshooting); a 401 from the Worker means steps 2 or 4 are
    not live yet; a 403 means the token is not the one named in `INGEST_CLIENT_ID`.
 
 To turn it off: `systemctl --user disable --now atto1-collector.timer`. Rows already stored stay.
