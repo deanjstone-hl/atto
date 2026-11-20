@@ -231,6 +231,69 @@ describe('what ingest writes', () => {
   })
 })
 
+describe('which vehicle a reading lands on (atto/5)', () => {
+  const addVehicle = (userId: string, nickname: string, vin: string | null) =>
+    (db.prepare('insert into vehicles (user_id, nickname, vin) values (?, ?, ?) returning id').get(userId, nickname, vin) as {
+      id: string
+    }).id
+
+  it("attaches to the owner's only vehicle when it has no VIN, instead of making a second one", async () => {
+    const handMade = addVehicle(ownerSubject, 'Toothless', null)
+    const response = await ingest(body())
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({ vehicle_id: handMade, observation: 'created' })
+    expect(rows('vehicles')).toMatchObject([{ id: handMade, nickname: 'Toothless', vin: null }])
+    expect(rows('range_observations')).toMatchObject([{ vehicle_id: handMade, soc_pct: 53 }])
+  })
+
+  it('keeps attaching later readings to that vehicle, never leaving the VIN on a copy', async () => {
+    const handMade = addVehicle(ownerSubject, 'Toothless', null)
+    await ingest(body())
+    await ingest(body({ observation: { ...reading, observed_at: '2026-11-07T01:30:00Z', soc_pct: 52 } }))
+    expect(rows('vehicles')).toHaveLength(1)
+    expect(rows('range_observations').map((row) => [row.vehicle_id, row.soc_pct])).toEqual([
+      [handMade, 53],
+      [handMade, 52],
+    ])
+  })
+
+  it('attaches a charging session to it too', async () => {
+    const handMade = addVehicle(ownerSubject, 'Toothless', null)
+    await ingest(body({ charging_session: session }))
+    expect(rows('charging_sessions')).toMatchObject([{ vehicle_id: handMade }])
+  })
+
+  it('prefers the vehicle that already carries the VIN over a vehicle without one', async () => {
+    addVehicle(ownerSubject, 'Toothless', null)
+    const withVin = addVehicle(ownerSubject, 'ATTO 1', VIN)
+    await ingest(body())
+    expect(rows('range_observations')).toMatchObject([{ vehicle_id: withVin }])
+    expect(rows('vehicles')).toHaveLength(2)
+  })
+
+  it('makes a vehicle when the only one has a different VIN', async () => {
+    addVehicle(ownerSubject, 'Other car', 'LC0CE4CB5S0654321')
+    await ingest(body())
+    expect(rows('vehicles')).toHaveLength(2)
+    expect(rows('vehicles')[1]).toMatchObject({ vin: VIN })
+  })
+
+  it('makes a vehicle when more than one has no VIN, because it cannot tell which is the car', async () => {
+    addVehicle(ownerSubject, 'One', null)
+    addVehicle(ownerSubject, 'Two', null)
+    await ingest(body())
+    expect(rows('vehicles')).toHaveLength(3)
+    expect(rows('vehicles')[2]).toMatchObject({ vin: VIN })
+  })
+
+  it("never attaches to another user's vehicle without a VIN", async () => {
+    addVehicle('subject-stranger', 'Theirs', null)
+    await ingest(body())
+    expect(rows('range_observations')).toMatchObject([{ user_id: ownerSubject }])
+    expect(rows('vehicles')).toHaveLength(2)
+  })
+})
+
 describe('what ingest refuses', () => {
   it.each([
     ['a vehicle with no VIN', { vehicle: { nickname: 'ATTO 1' }, observation: reading }],
