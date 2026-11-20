@@ -2,10 +2,9 @@
 // service token may call. The collector (collector/) posts what it read from the BYD
 // cloud: the vehicle, one reading and, when a charge has just ended, that session.
 //
-// Insert-only, like every other write: the vehicle is found by (user_id, VIN), or is the
-// owner's only vehicle when that has no VIN yet, and is made if missing (an existing one
-// is never changed); a reading or session already stored is reported as a duplicate, not
-// stored again, so a retry after a lost response is safe.
+// Insert-only, like every other write: the vehicle is found by (user_id, VIN) and made
+// if missing (an existing one is never changed), and a reading or session already stored
+// is reported as a duplicate, not stored again, so a retry after a lost response is safe.
 // Everything is validated before anything is written, so a bad body leaves no vehicle.
 // Every row belongs to the Access subject the Worker was configured with, never to a
 // value in the body.
@@ -26,26 +25,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function prefixed(prefix: string, errors: Fields): Fields {
   return Object.fromEntries(Object.entries(errors).map(([key, message]) => [`${prefix}.${key}`, message]))
-}
-
-// The vehicle a reading belongs to: the one carrying this VIN, else the owner's only
-// vehicle when it has no VIN (a car added by hand before the collector ran), else none.
-// Without the second rule every reading lands on a new row beside the hand-made vehicle
-// and the dashboard never shows it (atto/5). The VIN is not written onto the vehicle:
-// ingest never updates a row. Two or more vehicles, or one with another VIN, is not
-// something to guess at, so a new vehicle is made as before.
-async function findVehicle(db: D1Like, ownerId: string, vin: string): Promise<{ id: string } | null> {
-  const byVin = await db
-    .prepare('select id from vehicles where user_id = ?1 and vin = ?2')
-    .bind(ownerId, vin)
-    .first<{ id: string }>()
-  if (byVin) return byVin
-  const { results } = await db
-    .prepare('select id, vin from vehicles where user_id = ?1 limit 2')
-    .bind(ownerId)
-    .all<{ id: string; vin: string | null }>()
-  const [only] = results
-  return results.length === 1 && only.vin === null ? { id: only.id } : null
 }
 
 export async function ingestByd(request: Request, db: D1Like, ownerId: string): Promise<Response> {
@@ -88,7 +67,10 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
 
   try {
     let vehicleId: string
-    const existing = await findVehicle(db, ownerId, vehicle.values.vin as string)
+    const existing = await db
+      .prepare('select id from vehicles where user_id = ?1 and vin = ?2')
+      .bind(ownerId, vehicle.values.vin)
+      .first<{ id: string }>()
     if (existing) vehicleId = existing.id
     else {
       const created = await insertRow(db, ownerId, 'vehicles', vehicle.values)
