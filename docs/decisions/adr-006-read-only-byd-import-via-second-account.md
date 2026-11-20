@@ -3,7 +3,7 @@ title: ADR-006 — Read-only BYD import through a second account
 status: accepted
 date: 2026-11-07
 context: atto1/77 (owner decision, 7 Nov 2026 12:40 AEDT, in Aquila); account set up in atto1/76
-summary: "ADR-006: atto1 reads the ATTO 1's state from the BYD cloud with pybyd through a dedicated second account, read-only, from a homelab timer that posts to the Worker as one named Access service token; supersedes the no-import position"
+summary: "ADR-006: atto1 reads the ATTO 1's state from the BYD cloud with pybyd through a dedicated second account, read-only, from a homelab timer that posts to the Worker as one named Access service token; supersedes the no-import position. Amendment 1 (atto/6): a CarPlay connect or disconnect also triggers a run, tags its reading and reads the car's position for that reading only"
 read_when:
   - changing or running the BYD collector (collector/)
   - touching the ingest endpoint or the service-token path in worker/access.ts
@@ -37,12 +37,15 @@ account, so a login with the second account does not sign the phone app out
 - **Client: pybyd, read-only.** `collector/read-byd.py` calls `get_vehicles` and
   `get_vehicle_realtime` and nothing else. It never calls a command method (`RemoteCommand`,
   lock, unlock, climate, charging, windows, lights), never sets or uses a control PIN, never
-  calls the GPS endpoint, and keeps MQTT push off. `collector/read-byd.test.ts` fails if the
-  source names any of them. pybyd is pinned (`pybyd==0.0.80`: the first release that declares a guest account, which BYD requires of a shared car's account since 12 Nov 2026, [atto/3](https://github.com/deanjstone/atto/issues/3); the pin never goes below it).
+  keeps MQTT push off, and calls the GPS endpoint only with `--with-location`, which only a
+  CarPlay-triggered run passes ([Amendment 1](#amendment-1-carplay-triggers-and-the-position-atto6)).
+  `collector/read-byd.test.ts` fails if the source names any of them, and pins the GPS call to
+  that one branch. pybyd is pinned (`pybyd==0.0.80`: the first release that declares a guest account, which BYD requires of a shared car's account since 12 Nov 2026, [atto/3](https://github.com/deanjstone/atto/issues/3); the pin never goes below it).
 - **Fixed fields.** The reader prints eight values: VIN, model name, online flag, the car's
   timestamp, state of charge, range, odometer and pybyd's charge state. Location, doors,
   tyres and the other 130-odd realtime fields never leave the reader's process, so the privacy
-  cost of the import is the three numbers the dashboard shows plus the charge state.
+  cost of the import is the three numbers the dashboard shows plus the charge state. (Amendment 1
+  adds the position on a CarPlay-triggered reading, and nothing else.)
 - **Where and how often.** A systemd `--user` timer on the homelab runs
   `collector/run.ts` once every 30 minutes (`collector/systemd/`). Each run is one login and
   one realtime request; the realtime request wakes the car's telematics unit, so the interval
@@ -112,7 +115,8 @@ account, so a login with the second account does not sign the phone app out
   139 realtime fields populated with this grant, including every field the collector maps
   (`online_state`, `elec_percent`, `endurance_mileage`, `total_mileage`, `charge_state`).
   The collector only reads: it calls `get_vehicles` and `get_vehicle_realtime`, never a
-  control method and never the GPS method (a test fails if the source names one). **Residual
+  control method and, outside a CarPlay-triggered run, never the GPS method (a test fails if the
+  source names one anywhere but behind `--with-location`). **Residual
   risk:** a leaked password plus Basic control could lock and unlock the car, because the
   grant cannot be lowered below it.
 - Remote Control Verification is off on the owner's car, so a command needs no PIN
@@ -127,3 +131,51 @@ account, so a login with the second account does not sign the phone app out
 - The dashboard needs no change: it already reads `range_observations` and `charging_sessions`.
 - Follow-ups: verify session detection against the
   first real charge; consider a `source` column if collected and manual rows need telling apart.
+
+## Amendment 1: CarPlay triggers and the position (atto/6)
+
+Owner decisions, 21 Nov 2026: a connect or disconnect of the iPhone to CarPlay triggers a
+collector run (09:28 and 09:29 AEDT, in [atto/6](https://github.com/deanjstone/atto/issues/6));
+each such reading is tagged with its event; and the reading carries the car's position (09:38
+AEDT). The position amends this ADR, which kept location inside the collector.
+
+- **Trigger path.** The phone's Shortcut posts `{"event": "carplay_connect"}` or
+  `"carplay_disconnect"` to `POST /api/collect/trigger` as a second Access service token,
+  `atto1-carplay-phone`, whose client id the Worker holds as `TRIGGER_CLIENT_ID`. That token
+  reaches that one path and nothing else (not `/api/ingest/byd`, not the dashboard), and the
+  collector's token does not reach it: each token has its own paths, and a token that matches
+  both settings is the collector's. A homelab timer, `atto1-collector-trigger.timer`, asks
+  `GET /api/collect/pending` every minute with the collector's token and, when a trigger is
+  pending, runs the collector once and posts an acknowledgement (`POST /api/collect/ack`).
+  Triggers, acknowledgements and readings are all inserted, never updated (migration `0002`).
+- **Debounce.** Every trigger pending at once is covered by one run, tagged with the newest
+  event, and no run starts within two minutes of the last one from either timer, so the extra
+  polls this adds are bounded: at most one per two minutes, and only when the phone asks. A
+  trigger older than 30 minutes is no longer offered, so a reading is never tagged with an event
+  from long before it. A run that fails still acknowledges its triggers, so a broken login is
+  tried once per trigger and not once a minute.
+- **Tag.** `range_observations.trigger_event` holds `carplay_connect` or `carplay_disconnect`;
+  a timer reading has none. The Worker owns the event list (`worker/trigger-events.ts`) and the
+  database checks only the shape of the name, so atto/8 can add `charge_start` and `charge_stop`
+  without rebuilding the table. They are reserved and refused until then.
+- **Position.** `range_observations.latitude` and `longitude`, only on a tagged reading and
+  both or neither (a database CHECK says so, and so does `validateRangeObservation`). The reader
+  calls pybyd's `get_gps_info` only when run with `--with-location`, which only a triggered run
+  passes; the 30-minute timer never asks. A failed GPS read costs only the position: the tagged
+  reading is still sent. The position lives only in the private D1 database. It is never in a
+  fixture beyond an obvious fake (0, 0), a log (the run logs whether a position was read, never
+  its value), a commit or a comment, and no third-party service is called with it: the trips
+  view shows a coordinate and an OpenStreetMap link the owner opens by clicking.
+  `get_gps_info` is a trigger-and-poll call on BYD's `/control/` path, so it wakes the car's
+  telematics unit like a realtime read does; it changes nothing on the car.
+- **Reading and trips.** The dashboard pairs each connect reading with the next disconnect into
+  a trip (`src/lib/dashboard/trips.ts`): duration, distance (odometer difference), charge used
+  (state of charge difference, and kWh at the vehicle's battery capacity) and range used. An
+  unpaired connect is "in progress", an unpaired disconnect is skipped, and a connect that
+  follows another connect starts the trip (the earlier one never saw its disconnect).
+- **Consequences.** The grant is unchanged: Privacy (Vehicle location) was already held. The
+  phone sends only an event name; the position comes from the car through BYD, not the phone.
+  A second service token can file triggers, which are inert until the collector picks one up
+  and bounded by the debounce, so the worst a leaked phone token does is cause a collector run
+  every two minutes. Rotating it is an owner step in
+  [atto/7](https://github.com/deanjstone/atto/issues/7).

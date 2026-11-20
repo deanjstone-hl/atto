@@ -31,12 +31,13 @@ Cloudflare Access, over a D1 database (ADR-005). The Worker's only settings are 
 and `ACCESS_AUD`, `vars` in `wrangler.jsonc` held as `@@<bws secret name>@@` placeholders that
 `scripts/render-wrangler.ts` fills at deploy time from the environment, which `deploy.yml` fills from plain Actions secrets (`.env.example` lists them); empty, the Worker refuses every request. Two more,
 `INGEST_CLIENT_ID` and `INGEST_OWNER_SUBJECT`, name the BYD collector's one Access service token (ADR-006);
+`TRIGGER_CLIENT_ID` names the phone's, a second token that reaches only `POST /api/collect/trigger` (atto/6, ADR-006 Amendment 1);
 empty, every service token is refused. CI stays safe for fork pull requests: every job runs on
 `ubuntu-latest`, never `self-hosted`, no `pull_request_target`, no secret in a pull-request workflow
 (`scripts/public-safe.test.ts`). The collector (`collector/`, run by a homelab timer) reads
 `BYD_USERNAME`, `BYD_PASSWORD`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` and `ATTO1_BATTERY_KWH`,
-the first four from Bitwarden Secrets Manager by name; optional `ATTO1_BYD_BASE_URL` and `ATTO1_BYD_COUNTRY` name the BYD regional node for a non-AU account (default AU); see `docs/byd-collector.md`. Never run the reader
-with the owner's main account, never add a pybyd command method to it, and never run it from CI.
+the first four from Bitwarden Secrets Manager by name (the CarPlay pick-up, `collector/trigger.ts`, reads only the Access pair until something is pending); optional `ATTO1_BYD_BASE_URL` and `ATTO1_BYD_COUNTRY` name the BYD regional node for a non-AU account (default AU); see `docs/byd-collector.md`. Never run the reader
+with the owner's main account, never add a pybyd command method to it, never call its GPS read outside the `--with-location` branch (only a CarPlay-triggered run passes it), never write a position (or a VIN, username, token id or secret) into a fixture, log, commit or comment beyond an obvious fake such as 0, 0, and never run it from CI.
 `pnpm run dev` answers `/api/*` from fixtures (`vite.config.ts`), with no Worker, database or sign-in.
 
 ## Stack
@@ -47,7 +48,7 @@ with the owner's main account, never add a pybyd command method to it, and never
 
 ## Project purpose
 
-EV tracking app — planned features: charging sessions, range, vehicle specs, maintenance log, notes, dashboard. Data model defined in `migrations/` (D1, ADR-005) and mirrored in `src/lib/data-model/` (ADR-003). The dashboard (`src/components/dashboard/`) loads through `GET /api/dashboard` (`worker/dashboard.ts`, called by `src/lib/api.ts`) and is shaped by `src/lib/dashboard/shape.ts`. Entry forms (`src/components/entry/`) add a vehicle, charging sessions, range readings and features through `POST /api/vehicles`, `/api/charging-sessions`, `/api/range-observations` and `/api/vehicle-features` (`worker/writes.ts`). Writes only add rows, are bound to the Access `sub`, and share their rules with the forms through `src/lib/data-model/validation.ts`; there is no update or delete.
+EV tracking app — planned features: charging sessions, range, vehicle specs, maintenance log, notes, dashboard. Data model defined in `migrations/` (D1, ADR-005) and mirrored in `src/lib/data-model/` (ADR-003). The dashboard (`src/components/dashboard/`) loads through `GET /api/dashboard` (`worker/dashboard.ts`, called by `src/lib/api.ts`) and is shaped by `src/lib/dashboard/shape.ts`. Entry forms (`src/components/entry/`) add a vehicle, charging sessions, range readings and features through `POST /api/vehicles`, `/api/charging-sessions`, `/api/range-observations` and `/api/vehicle-features` (`worker/writes.ts`). Writes only add rows, are bound to the Access `sub`, and share their rules with the forms through `src/lib/data-model/validation.ts`; there is no update or delete. The CarPlay trigger queue (`worker/collect.ts`, migration `0002`) follows the same rule: a trigger is a row and an acknowledgement is another row. A reading's `trigger_event` and position are set by the collector's ingest only, never by the entry forms or `POST /api/range-observations`; the event list lives in `worker/trigger-events.ts` and is extended there (atto/8 adds the charge events). The dashboard's trips are paired from those tagged readings in `src/lib/dashboard/trips.ts`.
 
 ## Project goals
 

@@ -1,5 +1,5 @@
 ---
-summary: "Runbook for the BYD collector (ADR-006): what it reads, the owner steps that turn it on (Access service token, Secrets Manager entries, timer), the first run, and the audit that shows the grant the second BYD account holds"
+summary: "Runbook for the BYD collector (ADR-006): what it reads, the owner steps that turn it on (Access service token, Secrets Manager entries, timer), the first run, how the CarPlay trigger adds tagged readings with a position, and the audit that shows the grant the second BYD account holds"
 read_when:
   - "turning the BYD collector on, off or debugging a failed run"
   - "creating or rotating the atto1-ingest Access service token"
@@ -28,6 +28,31 @@ Every 30 minutes a systemd timer on the homelab runs `collector/run.ts` once:
 
 Never run it with the owner's main account, and never add a command call to the reader:
 `collector/read-byd.test.ts` fails if the source names one.
+
+## CarPlay triggers (atto/6)
+
+The same run also happens when the iPhone connects to or leaves CarPlay
+([carplay-shortcut.md](carplay-shortcut.md)). The phone files a trigger at `POST
+/api/collect/trigger` with its own Access service token (`atto1-carplay-phone`); a second timer,
+`atto1-collector-trigger.timer`, asks `GET /api/collect/pending` every minute with the
+collector's token and runs `collector/trigger.ts`. When something is pending, that runs
+`collector/run.ts`'s run once with the newest event:
+
+- the reader is started with `--with-location`, which makes the one GPS call
+  (`get_gps_info`) and prints `latitude` and `longitude` beside the usual eight fields (a failed
+  GPS read prints `null` for both and still prints the reading);
+- the reading is posted with `trigger_event` (`carplay_connect` or `carplay_disconnect`) and the
+  position, which the Worker stores only on a tagged reading;
+- the triggers it covered are acknowledged (`POST /api/collect/ack`).
+
+The 30-minute timer never asks for the position and never tags. Every pending trigger is
+covered by one run, no run starts within two minutes of the last one (`last-run.json` in the
+state directory records it for both timers), and both units hold one `flock` on
+`$XDG_RUNTIME_DIR/atto1-collector.lock`, so two runs never read the car or write `state.json`
+together. The run logs whether a position was read (`position read` or `no position`), never its
+value. A failed run still acknowledges its triggers, so a broken login is tried once per trigger,
+not once a minute. `scripts/owner-steps/6.sh` installs the trigger units; the full order of owner
+steps is in [carplay-shortcut.md](carplay-shortcut.md).
 
 ## Secrets
 
@@ -149,4 +174,7 @@ A login with the second account does not sign the phone app out.
 | `the car sent no charge or range` | The car is offline or asleep; the run sends nothing and tries again in 30 minutes. |
 | `the Worker answered 302` | Access redirected the request: the service token is wrong, expired, or not in the `ingest` policy. |
 | `the Worker answered 401` / `403` | `INGEST_*` are not set in the deployed Worker / the token is not the named one. |
+| `atto1-collector-trigger: ... waiting` | A trigger is pending but the last run was under two minutes ago (either timer); it is picked up on a later tick. |
+| `atto1-collector-trigger: the Worker answered 302 / 401 / 403 to the pending list` | The collector's token is not admitted (302), the Worker has no `INGEST_*` (401), or the token is not the collector's (403). Same causes as the ingest row above. |
+| `no position` after `tagged carplay_...` | The GPS read failed or the car was asleep; the tagged reading was stored without a position. |
 | `the state file ... is not valid JSON` | Delete `~/.local/state/atto1-collector/state.json`; the next poll starts fresh (an open charge is lost). |

@@ -20,7 +20,7 @@ import { d1Over, migratedDatabase } from './test-support/sqlite-d1'
 const ownerSubject = 'subject-owner'
 const strangerSubject = 'subject-stranger'
 const ingestClientId = '0123456789abcdef0123456789abcdef.access'
-const phoneClientId = 'fedcba9876543210fedcba9876543210.access'
+const phoneClientId = 'phone-token-client.access'
 
 let db: DatabaseSync
 let key: SigningKey

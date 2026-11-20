@@ -18,9 +18,12 @@ repository `atto1`, which is archived.
   and every promotion applies the migrations.
 - **API:** a Cloudflare Worker (`worker/`) that verifies Cloudflare Access tokens on every
   request, reads D1 and adds rows to it (`worker/writes.ts`). It also serves the built app, and
-  one path (`POST /api/ingest/byd`) for the BYD collector's service token.
-- **UI:** a dashboard (vehicle status, recent charging sessions, key specs, range trend; for
-  the vehicle with the latest reading) in
+  one path (`POST /api/ingest/byd`) for the BYD collector's service token, and the CarPlay trigger
+  endpoints: `POST /api/collect/trigger` for the phone's own service token, `GET /api/collect/pending`
+  and `POST /api/collect/ack` for the collector's.
+- **UI:** a dashboard (vehicle status, recent charging sessions, key specs, range trend and
+  trips paired from CarPlay connect and disconnect readings; for the vehicle with the latest
+  reading) in
   `src/components/dashboard/`, and entry forms for a vehicle, charging sessions, range
   readings and features in `src/components/entry/`. Entries only add rows; there is no edit
   or delete yet.
@@ -71,8 +74,9 @@ hand, from Secrets Manager through `bws secret list` with your own `BWS_ACCESS_T
 | `ATTO_D1_DATABASE_ID` | the D1 `database_id` |
 | `ATTO_ACCESS_TEAM_DOMAIN`, `ATTO_ACCESS_AUD` | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` (empty or wrong: the Worker refuses every request) |
 | `ATTO_INGEST_CLIENT_ID`, `ATTO_INGEST_OWNER_SUBJECT` | `INGEST_CLIENT_ID`, `INGEST_OWNER_SUBJECT` for the BYD collector's service token (empty: no service token is accepted) |
+| `ATTO_TRIGGER_CLIENT_ID` | `TRIGGER_CLIENT_ID`, the phone's CarPlay service token (`atto1-carplay-phone`; empty: the phone token is refused) |
 
-`deploy.yml` reads the five `ATTO_*` values, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as plain Actions secrets (the token is `ci-deploy-atto1` in BWS), the pattern of argus's `with-d1-id.sh`: CI never calls Secrets Manager, so there is no machine account and no `BWS_ACCESS_TOKEN` secret. The owner set them once from Secrets Manager. Without them `deploy.yml` fails before it changes anything, so do not promote until it has run.
+`deploy.yml` reads the six `ATTO_*` values, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as plain Actions secrets (the token is `ci-deploy-atto1` in BWS), the pattern of argus's `with-d1-id.sh`: CI never calls Secrets Manager, so there is no machine account and no `BWS_ACCESS_TOKEN` secret. The owner set them once from Secrets Manager. Without them `deploy.yml` fails before it changes anything, so do not promote until it has run.
 
 `bash scripts/scrub-scan.sh` runs gitleaks with `.gitleaks.toml` (default rules plus tailnet and LAN
 addresses, hostnames, emails, mobile numbers, Cloudflare ids and Access team domains) over the
@@ -99,6 +103,18 @@ vehicle when it has none (it fills the VIN in, never the nickname), else it make
 node collector/run.ts   # one run: needs Node 22.18+, pybyd, and the secrets above
 ```
 
+### CarPlay trips
+
+When the iPhone connects to or leaves CarPlay, an iOS Shortcut posts the event to the Worker with
+its own Access service token; a second homelab timer (`atto1-collector-trigger.timer`, every
+minute) picks it up, runs the collector once, tags that reading `carplay_connect` or
+`carplay_disconnect` and adds the car's position to it (only a triggered reading carries one).
+The dashboard's Trips card pairs each connect with the next disconnect. Triggers are debounced:
+one run covers everything pending, and no run starts within two minutes of the last. Setup,
+in order, and the Shortcut's exact settings: [docs/carplay-shortcut.md](docs/carplay-shortcut.md);
+the position amendment: [ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md).
+`bash scripts/owner-steps/6.sh --dry-run` previews the homelab install.
+
 ## Scripts
 
 | Command | What it does |
@@ -111,6 +127,7 @@ node collector/run.ts   # one run: needs Node 22.18+, pybyd, and the secrets abo
 | `pnpm test` | Vitest: unit tests, plus migration and Worker tests against in-process SQLite |
 | `pnpm run preview` | Serve the production build |
 | `node collector/run.ts` | One collector run: reads the car, posts to the Worker. Owner-enabled; see above |
+| `node collector/trigger.ts` | The CarPlay pick-up: asks the Worker for pending triggers and, if there are any, runs the collector once for the newest. Run every minute by `atto1-collector-trigger.timer` |
 | `pnpm run db:migrate` | Render `wrangler.deploy.jsonc` from BWS, then apply D1 migrations to the remote database: owner only, from a checkout of `deploy` |
 | `pnpm run deploy` | Build, render `wrangler.deploy.jsonc` from BWS and deploy the Worker: owner only, from a checkout of `deploy` |
 | `node scripts/render-wrangler.ts` | Write `wrangler.deploy.jsonc` from `wrangler.jsonc` and BWS (see Private values) |
@@ -127,7 +144,7 @@ Production changes only from the `deploy` branch; full runbook in
    `scripts/promote.sh <sha>` (owner's live approval of the exact command; fast-forward only).
 3. The push to `deploy` runs `deploy.yml`: install, typecheck, lint, test, then
    `pnpm run db:migrate` and `pnpm run deploy`, with the `CLOUDFLARE_API_TOKEN`,
-   `CLOUDFLARE_ACCOUNT_ID` repository secrets, and the five `ATTO_*` Worker values, scoped to those two
+   `CLOUDFLARE_ACCOUNT_ID` repository secrets, and the six `ATTO_*` Worker values, scoped to those two
    steps as environment variables. Both scripts start with
    `scripts/require-deploy-checkout.sh`, which refuses unless the checkout is exactly
    `origin/deploy`.
