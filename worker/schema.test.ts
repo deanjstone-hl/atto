@@ -29,6 +29,8 @@ describe('schema', () => {
       .all()
     expect(rows).toEqual([
       { name: 'charging_sessions' },
+      { name: 'collect_acks' },
+      { name: 'collect_triggers' },
       { name: 'maintenance_records' },
       { name: 'notes' },
       { name: 'range_observations' },
