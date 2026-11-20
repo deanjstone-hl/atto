@@ -71,6 +71,24 @@ function run(args: string[], env: Record<string, string>, options: { stubbedHost
   return { ...result, home }
 }
 
+// Runs a unit's ExecStart as systemd would hand it to bash, with `node` replaced by a stub
+// that runs `nodeBody`: $HOME/.bws_token holds a stub token and %t is a scratch runtime dir
+// whose lock file the stub can find as $LOCK.
+function runExecStart(unit: string, nodeBody: string) {
+  const code = unit.split('\n').filter((line) => !line.trim().startsWith('#')).join('\n')
+  const execStart = code.match(/^ExecStart=\/bin\/bash -c '(.*)'$/m)?.[1]
+  expect(execStart).toBeDefined()
+  const home = mkdtempSync(join(tmpdir(), 'atto1-unit-'))
+  const runtime = mkdtempSync(join(tmpdir(), 'atto1-runtime-'))
+  writeFileSync(join(home, '.bws_token'), 'BWS_ACCESS_TOKEN=stub\n')
+  stub(join(home, '.local/share/fnm/aliases/default/bin/node'), `LOCK="${runtime}/atto1-collector.lock"\n${nodeBody}`)
+  return spawnSync('/bin/bash', ['-c', (execStart ?? '').replaceAll('%t', runtime)], {
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH ?? '', HOME: home },
+    cwd: home,
+  })
+}
+
 const failedChecks = (stderr: string) => stderr.split('\n').filter((line) => line.startsWith('pre-flight FAILED'))
 
 describe('scripts/owner-steps/77.sh', () => {
@@ -133,18 +151,13 @@ describe('the shipped units', () => {
   it('exports the Secrets Manager access token to the collector and the bws it runs (atto1/87)', () => {
     // ~/.bws_token is a bare BWS_ACCESS_TOKEN=… assignment; sourcing it without `set -a`
     // leaves a shell variable that node and bws never see.
-    const execStart = live(service).match(/^ExecStart=\/bin\/bash -c '(.*)'$/m)?.[1]
-    expect(execStart).toBeDefined()
-    const home = mkdtempSync(join(tmpdir(), 'atto1-unit-'))
-    writeFileSync(join(home, '.bws_token'), 'BWS_ACCESS_TOKEN=stub\n')
-    const node = join(home, '.local/share/fnm/aliases/default/bin/node')
-    stub(node, '[ "${BWS_ACCESS_TOKEN:-}" = stub ]')
-    const result = spawnSync('/bin/bash', ['-c', execStart ?? ''], {
-      encoding: 'utf8',
-      env: { PATH: process.env.PATH ?? '', HOME: home },
-      cwd: home,
-    })
-    expect(result.status).toBe(0)
+    expect(runExecStart(service, '[ "${BWS_ACCESS_TOKEN:-}" = stub ]').status).toBe(0)
+  })
+
+  // One collector run at a time (atto/6): the timer run and the trigger pick-up both read the
+  // car and write state.json, so both units hold the same lock while node runs.
+  it('runs the collector under the lock the trigger pick-up shares', () => {
+    expect(runExecStart(service, 'if flock -n "$LOCK" true; then exit 1; fi').status).toBe(0)
   })
 
   it('puts ~/.local/bin on the PATH of the unit, so the collector finds bws (atto1/106)', () => {
@@ -169,5 +182,49 @@ describe('the shipped units', () => {
   it('polls every 30 minutes, no faster', () => {
     expect(live(timer)).toMatch(/OnCalendar=\*:00,30/)
     expect(live(timer)).toMatch(/WantedBy=timers.target/)
+  })
+})
+
+describe('the trigger pick-up units (atto/6)', () => {
+  const service = readFileSync(join(root, 'collector/systemd/atto1-collector-trigger.service'), 'utf8')
+  const collector = readFileSync(join(root, 'collector/systemd/atto1-collector.service'), 'utf8')
+  const timer = readFileSync(join(root, 'collector/systemd/atto1-collector-trigger.timer'), 'utf8')
+  const live = (text: string) => text.split('\n').filter((line) => !line.trim().startsWith('#')).join('\n')
+
+  it('runs collector/trigger.ts once, from the deploy copy', () => {
+    expect(live(service)).toMatch(/Type=oneshot/)
+    expect(live(service)).toMatch(/WorkingDirectory=%h\/repos\/atto1?$/m)
+    expect(live(service)).toMatch(/collector\/trigger\.ts/)
+    expect(live(service)).not.toMatch(/collector\/run\.ts/)
+  })
+
+  it('exports the Secrets Manager access token, as the collector unit does', () => {
+    expect(runExecStart(service, '[ "${BWS_ACCESS_TOKEN:-}" = stub ]').status).toBe(0)
+  })
+
+  it('holds the same lock as the collector unit while it runs, so the two never read the car together', () => {
+    expect(runExecStart(service, 'if flock -n "$LOCK" true; then exit 1; fi').status).toBe(0)
+    const lockOf = (unit: string) => live(unit).match(/flock [^']*?(%t\/[\w.-]+)/)?.[1]
+    expect(lockOf(service)).toBeDefined()
+    expect(lockOf(service)).toBe(lockOf(collector))
+  })
+
+  it('waits for the lock for less time than the unit may run', () => {
+    const wait = Number(live(service).match(/flock -w (\d+)/)?.[1])
+    const timeout = Number(live(service).match(/TimeoutStartSec=(\d+)/)?.[1])
+    expect(wait).toBeGreaterThan(0)
+    expect(wait).toBeLessThan(timeout)
+  })
+
+  it('shares the collector state directory and PATH, and carries no secret', () => {
+    expect(live(service)).toMatch(/^StateDirectory=atto1-collector$/m)
+    expect(live(service)).toMatch(/^Environment=PATH=%h\/\.local\/bin:/m)
+    expect(live(service)).not.toMatch(/PASSWORD|SECRET=|CLIENT_ID=|BYD_USERNAME/)
+  })
+
+  it('is asked every minute, and only starts the car read when something is pending', () => {
+    expect(live(timer)).toMatch(/OnCalendar=minutely/)
+    expect(live(timer)).toMatch(/WantedBy=timers.target/)
+    expect(live(timer)).toMatch(/^Persistent=false$/m)
   })
 })

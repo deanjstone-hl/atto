@@ -1,0 +1,22 @@
+# The CarPlay trigger pick-up (atto/6): asks the Worker what is pending and, when a CarPlay
+# connect or disconnect is, runs the collector once for it. Started every minute by
+# atto1-collector-trigger.timer. Installed by scripts/owner-steps/6.sh, from a checkout of
+# `deploy`. It reads only the collector's Access token until something is pending, so an idle
+# minute never logs in to BYD.
+[Unit]
+Description=atto1 CarPlay trigger pick-up (runs the BYD collector once when the phone connects or leaves CarPlay)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/atto
+# As atto1-collector.service: the Bitwarden Secrets Manager access token, `set -a` so node and
+# bws see it, and ~/.local/bin on the PATH so secrets.ts finds `bws`.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The same lock as atto1-collector.service holds, so a timer run and a triggered run never read
+# the car or write state.json together; a run that finds it taken waits (less than the timeout).
+ExecStart=/bin/bash -c 'set -a && . "$HOME/.bws_token" && set +a && exec flock -w 150 "%t/atto1-collector.lock" "$HOME/.local/share/fnm/aliases/default/bin/node" collector/trigger.ts'
+# The reader's interpreter and the battery capacity come from the drop-in the installer
+# copies from atto1-collector.service.d (atto1-collector-trigger.service.d/collector.conf).
+# The same state directory, so the two timers share state.json and last-run.json.
+StateDirectory=atto1-collector
+TimeoutStartSec=300

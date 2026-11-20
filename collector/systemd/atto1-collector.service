@@ -13,7 +13,8 @@ WorkingDirectory=%h/repos/atto
 # the run dies with `spawn bws ENOENT` (atto1/106).
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Node's stable fnm alias, not a node-versions/ path: a user unit does not source .zshrc.
-ExecStart=/bin/bash -c 'set -a && . "$HOME/.bws_token" && set +a && exec "$HOME/.local/share/fnm/aliases/default/bin/node" collector/run.ts'
+# The lock is shared with atto1-collector-trigger.service (atto/6): one run at a time.
+ExecStart=/bin/bash -c 'set -a && . "$HOME/.bws_token" && set +a && exec flock -w 150 "%t/atto1-collector.lock" "$HOME/.local/share/fnm/aliases/default/bin/node" collector/run.ts'
 # The reader needs its own interpreter with pybyd; the installer sets ATTO1_PYTHON and
 # ATTO1_BATTERY_KWH in a drop-in (atto1-collector.service.d/collector.conf).
 StateDirectory=atto1-collector

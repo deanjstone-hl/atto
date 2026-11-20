@@ -1,0 +1,13 @@
+# Every minute (atto/6): one cheap request to the Worker. Only a pending CarPlay trigger makes
+# it read the car, and never more than once in two minutes, so this does not shorten the
+# 30-minute poll's battery trade-off (ADR-006) except when the phone asks.
+[Unit]
+Description=atto1 CarPlay trigger pick-up, every minute
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=10s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
