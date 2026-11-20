@@ -42,7 +42,15 @@ export async function loadDashboard(db: D1Like, userId: string): Promise<Dashboa
   try {
     const [vehicle] = await rows<Vehicle>('vehicles', () =>
       db
-        .prepare('select * from vehicles where user_id = ?1 order by created_at asc limit 1')
+        .prepare(
+          // The vehicle with the latest reading, so live data is never hidden behind a
+          // second row (atto/5); with no readings anywhere, the oldest.
+          `select * from vehicles v where user_id = ?1
+           order by (select max(observed_at) from range_observations r
+                     where r.vehicle_id = v.id and r.user_id = v.user_id) desc nulls last,
+                    created_at asc
+           limit 1`,
+        )
         .bind(userId)
         .all<Vehicle>(),
     )
