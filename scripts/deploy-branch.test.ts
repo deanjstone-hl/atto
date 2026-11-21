@@ -492,15 +492,20 @@ describe('the wiring', () => {
       expect(body.indexOf('run: pnpm run test')).toBeLessThan(body.indexOf('run: pnpm run db:migrate'))
     })
 
-    it('takes its credentials from repository secrets, on the steps that need them only', () => {
+    it('takes its credentials from Secrets Manager through sm-action, ahead of the steps that need them only', () => {
       const body = text()
-      expect(body).toContain('secrets.CLOUDFLARE_API_TOKEN')
-      expect(body).toContain('secrets.CLOUDFLARE_ACCOUNT_ID')
+      expect(body).toMatch(/> CLOUDFLARE_API_TOKEN\n/)
+      expect(body).toMatch(/> CLOUDFLARE_ACCOUNT_ID\n/)
+      expect(body).not.toContain('secrets.CLOUDFLARE_')
       expect(body).not.toMatch(/^env:/m)
       expect(body).not.toMatch(/^ {4}env:/m)
-      for (const step of body.split(/^ {6}- /m).slice(1)) {
+      const steps = body.replace(/^\s*#.*$/gm, '').split(/^ {6}- /m).slice(1)
+      const sm = steps.findIndex((step) => /uses: bitwarden\/sm-action@/.test(step))
+      expect(sm).toBeGreaterThan(-1)
+      for (const [index, step] of steps.entries()) {
         const needsCredential = /run: pnpm run (db:migrate|deploy)\b/.test(step)
-        expect(/CLOUDFLARE_API_TOKEN/.test(step), step.split('\n')[0]).toBe(needsCredential)
+        if (needsCredential) expect(index, step.split('\n')[0]).toBeGreaterThan(sm)
+        expect(/CLOUDFLARE_API_TOKEN/.test(step), step.split('\n')[0]).toBe(index === sm)
       }
     })
 

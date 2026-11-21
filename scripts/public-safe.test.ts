@@ -52,24 +52,26 @@ describe('a workflow a pull request starts', () => {
 describe('deploy.yml and the Worker values', () => {
   const deploy = workflows.find(({ name }) => name === 'deploy.yml')!
   const VALUES = ['ATTO_D1_DATABASE_ID', 'ATTO_ACCESS_TEAM_DOMAIN', 'ATTO_ACCESS_AUD', 'ATTO_INGEST_CLIENT_ID', 'ATTO_INGEST_OWNER_SUBJECT', 'ATTO_TRIGGER_CLIENT_ID']
+  // wrangler reads these two names; their Secrets Manager keys are ATTO_CLOUDFLARE_API_TOKEN and
+  // ATTO_CLOUDFLARE_ACCOUNT_ID (scripts/owner-steps/10.sh).
   const CLOUDFLARE = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']
   const steps = deploy.code.split(/\n\s+- /).slice(1)
   const smSteps = steps.filter((step) => /uses:\s*bitwarden\/sm-action@/.test(step))
 
-  it('reads the Worker values through bitwarden/sm-action, pinned by full commit SHA (atto/10)', () => {
+  it('reads every value through bitwarden/sm-action, pinned by full commit SHA (atto/10)', () => {
     expect(smSteps.length).toBe(1)
     expect(smSteps[0]).toMatch(/uses:\s*bitwarden\/sm-action@[0-9a-f]{40}\b/)
     expect(smSteps[0]).toContain('access_token: ${{ secrets.BWS_ACCESS_TOKEN }}')
   })
 
-  it('maps one Secrets Manager id to each Worker value, in that one step, and no value twice', () => {
+  it('maps one Secrets Manager id to each Worker value and Cloudflare credential, in that one step, and no value twice', () => {
     const map = [...smSteps[0].matchAll(/^\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) > ([A-Z0-9_]+)\s*$/gm)]
-    expect(map.map((match) => match[2]).sort()).toEqual([...VALUES].sort())
-    expect(new Set(map.map((match) => match[1])).size).toBe(VALUES.length)
+    expect(map.map((match) => match[2]).sort()).toEqual([...VALUES, ...CLOUDFLARE].sort())
+    expect(new Set(map.map((match) => match[1])).size).toBe(VALUES.length + CLOUDFLARE.length)
   })
 
-  it('names every key in a comment above the step, and reads no Worker value from an Actions secret', () => {
-    for (const name of VALUES) {
+  it('names every key in a comment above the step, and reads none from an Actions secret', () => {
+    for (const name of [...VALUES, ...CLOUDFLARE]) {
       expect(deploy.text, name).toMatch(new RegExp(`^\\s*#.*\\b${name}\\b`, 'm'))
       expect(deploy.code, name).not.toContain(`secrets.${name}`)
     }
@@ -86,17 +88,8 @@ describe('deploy.yml and the Worker values', () => {
     for (const step of after) expect(step).toMatch(/pnpm run (db:migrate|deploy)/)
   })
 
-  it('hands the Cloudflare credentials only to the two steps that call wrangler', () => {
-    const holders = steps.filter((step) => /secrets\.CLOUDFLARE_/.test(step))
-    expect(holders.length).toBe(2)
-    for (const step of holders) {
-      expect(step).toMatch(/pnpm run (db:migrate|deploy)/)
-      for (const name of CLOUDFLARE) expect(step, name).toContain(`secrets.${name}`)
-    }
-  })
-
-  it('uses no Actions secret but BWS_ACCESS_TOKEN and the two Cloudflare credentials', () => {
+  it('uses no Actions secret but BWS_ACCESS_TOKEN', () => {
     const used = new Set([...deploy.code.matchAll(/secrets\.([A-Za-z0-9_]+)/g)].map((match) => match[1]))
-    expect([...used].sort()).toEqual(['BWS_ACCESS_TOKEN', ...CLOUDFLARE].sort())
+    expect([...used]).toEqual(['BWS_ACCESS_TOKEN'])
   })
 })

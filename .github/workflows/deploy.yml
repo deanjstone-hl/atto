@@ -19,18 +19,15 @@ name: Deploy
 # A rollback works only for a release cut after this change, since an older tag carries the
 # old workflow, which skips the dispatch.
 #
-# Secrets (atto/10, the pilot of argus-config/1418): the six private Worker values come from Bitwarden
+# Secrets (atto/10, the pilot of argus-config/1418): every value the deploy needs comes from Bitwarden
 # Secrets Manager through bitwarden/sm-action, pinned by full commit SHA (v3.0.1), with the one Actions
 # secret BWS_ACCESS_TOKEN: the token `github-actions` of the machine account `actions-read`, which has
 # Can read on the `actions` project only. The action looks a secret up by id, so the map below pairs each
 # id with its environment variable, in this one place. It exports them as masked environment variables
-# to the steps after it, and the only steps after it are the two that call wrangler. CLOUDFLARE_API_TOKEN
-# and CLOUDFLARE_ACCOUNT_ID stay plain Actions secrets for now: a new Secrets Manager secret has no id
-# until the owner's script creates it, so they follow in a second change (scripts/owner-steps/10.sh
-# creates them in `actions` and prints their ids). The repository is public, so none of those values is
-# in it: scripts/render-wrangler.ts fills the placeholders in wrangler.jsonc from the environment and
-# writes the gitignored config wrangler reads. It has no pull_request trigger, so a fork's pull request
-# never reaches the token or the secrets.
+# to the steps after it, and the only steps after it are the two that call wrangler. The repository is
+# public, so none of those values is in it: scripts/render-wrangler.ts fills the placeholders in
+# wrangler.jsonc from the environment and writes the gitignored config wrangler reads. It has no
+# pull_request trigger, so a fork's pull request never reaches the token or the secrets.
 
 on:
   push:
@@ -82,7 +79,7 @@ jobs:
       - name: Test
         run: pnpm run test
 
-      # The six values below are what scripts/render-wrangler.ts needs; every one is a key of the
+      # The values below are what scripts/render-wrangler.ts and wrangler need; every one is a key of the
       # `actions` project in Secrets Manager (id on the left, environment variable on the right):
       #   ATTO_D1_DATABASE_ID        the D1 database id
       #   ATTO_ACCESS_TEAM_DOMAIN    the Cloudflare Access team domain
@@ -90,9 +87,12 @@ jobs:
       #   ATTO_INGEST_CLIENT_ID      the BYD collector's Access service token (Client ID)
       #   ATTO_INGEST_OWNER_SUBJECT  the owner's Access user id
       #   ATTO_TRIGGER_CLIENT_ID     the phone's CarPlay Access service token (Client ID)
+      #   CLOUDFLARE_API_TOKEN       wrangler's API token (the key ATTO_CLOUDFLARE_API_TOKEN, a copy of ci-deploy-atto1)
+      #   CLOUDFLARE_ACCOUNT_ID      the Cloudflare account id (the key ATTO_CLOUDFLARE_ACCOUNT_ID)
+      # wrangler reads the last two by those names, so the variable drops the ATTO_ prefix of its key.
       # Placed last before wrangler so only the two steps below it see the values. A key with no
       # secret behind its id makes this step fail, before anything changes.
-      - name: Read the Worker values from Secrets Manager
+      - name: Read the deploy values from Secrets Manager
         uses: bitwarden/sm-action@1238aae8fc64b212641190a9227c8a734ab1a793 # v3.0.1
         with:
           access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
@@ -103,6 +103,8 @@ jobs:
             3c1ecf4c-60e9-430a-8b09-b50701788cc6 > ATTO_INGEST_CLIENT_ID
             d4a02a35-2a12-41de-b518-b50701788e3e > ATTO_INGEST_OWNER_SUBJECT
             593a8c42-7d28-49c4-8744-b509000033c0 > ATTO_TRIGGER_CLIENT_ID
+            d5ef370a-5738-4e13-9de0-b50900a40e86 > CLOUDFLARE_API_TOKEN
+            33229ee9-c727-4258-a9ea-b50900a40fbb > CLOUDFLARE_ACCOUNT_ID
 
       # Both scripts start with scripts/require-deploy-checkout.sh: they refuse unless this
       # checkout is exactly what origin/deploy holds. If deploy moved on since this run
@@ -112,13 +114,9 @@ jobs:
         env:
           # Set only for a rollback; empty means the guard wants HEAD to be `deploy` itself.
           DEPLOY_ROLLBACK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy the Worker
         run: pnpm run deploy
         env:
           # Set only for a rollback; empty means the guard wants HEAD to be `deploy` itself.
           DEPLOY_ROLLBACK_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
