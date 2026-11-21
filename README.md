@@ -65,8 +65,8 @@ gitignored `wrangler.deploy.jsonc`, which `pnpm run db:migrate` and `pnpm run de
 wrangler. A placeholder name is the BWS key and the environment variable at once
 (`ATTO_ACCESS_AUD`, the `<REPO>_<KEY>` layout of
 [argus-config/1414](https://github.com/deanjstone/argus-config/issues/1414)). Each value comes from
-the environment (in CI, the Actions secret of the same name), else, for a break-glass deploy by
-hand, from Secrets Manager through `bws secret list` with your own `BWS_ACCESS_TOKEN`.
+the environment (in CI, `bitwarden/sm-action` exports the Secrets Manager secret of the same name), else, for a
+break-glass deploy by hand, from Secrets Manager through `bws secret list` with your own `BWS_ACCESS_TOKEN`.
 `.env.example` lists every key.
 
 | BWS secret | Becomes |
@@ -76,7 +76,9 @@ hand, from Secrets Manager through `bws secret list` with your own `BWS_ACCESS_T
 | `ATTO_INGEST_CLIENT_ID`, `ATTO_INGEST_OWNER_SUBJECT` | `INGEST_CLIENT_ID`, `INGEST_OWNER_SUBJECT` for the BYD collector's service token (empty: no service token is accepted) |
 | `ATTO_TRIGGER_CLIENT_ID` | `TRIGGER_CLIENT_ID`, the phone's CarPlay service token (`atto1-carplay-phone`; empty: the phone token is refused) |
 
-`deploy.yml` reads the six `ATTO_*` values, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as plain Actions secrets (the token is `ci-deploy-atto1` in BWS), the pattern of argus's `with-d1-id.sh`: CI never calls Secrets Manager, so there is no machine account and no `BWS_ACCESS_TOKEN` secret. The owner set them once from Secrets Manager. Without them `deploy.yml` fails before it changes anything, so do not promote until it has run.
+`deploy.yml` reads the six `ATTO_*` values from the `actions` project of Secrets Manager through `bitwarden/sm-action` (pinned by commit SHA), with one Actions secret, `BWS_ACCESS_TOKEN`: the token `github-actions` of the machine account `actions-read`, which has Can read on `actions` only ([argus-config/1418](https://github.com/deanjstone/argus-config/issues/1418)). The action looks a secret up by id, so the id-to-variable map sits in one place, the `secrets:` block of the `Read the Worker values from Secrets Manager` step. `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are still plain Actions secrets (the token is `ci-deploy-atto1` in BWS): a Secrets Manager secret has no id until it is created, so `scripts/owner-steps/10.sh` creates `ATTO_CLOUDFLARE_API_TOKEN` and `ATTO_CLOUDFLARE_ACCOUNT_ID` in `actions` and prints their ids for a later change to map. Without the token or a secret behind an id, `deploy.yml` fails at that step before it changes anything.
+
+Moving the values is the owner's one-time step, `scripts/owner-steps/10.sh` (`--dry-run` first; it moves the six keys to `actions`, keeping their ids, and checks each by id). Once a promotion has run `deploy.yml` green on this path, `scripts/owner-steps/10.sh --delete-actions-secrets` deletes the Actions secrets it replaced.
 
 `bash scripts/scrub-scan.sh` runs gitleaks with `.gitleaks.toml` (default rules plus tailnet and LAN
 addresses, hostnames, emails, mobile numbers, Cloudflare ids and Access team domains) over the
@@ -144,8 +146,8 @@ Production changes only from the `deploy` branch; full runbook in
    `scripts/promote.sh <sha>` (owner's live approval of the exact command; fast-forward only).
 3. The push to `deploy` runs `deploy.yml`: install, typecheck, lint, test, then
    `pnpm run db:migrate` and `pnpm run deploy`, with the `CLOUDFLARE_API_TOKEN`,
-   `CLOUDFLARE_ACCOUNT_ID` repository secrets, and the six `ATTO_*` Worker values, scoped to those two
-   steps as environment variables. Both scripts start with
+   `CLOUDFLARE_ACCOUNT_ID` repository secrets, and the six `ATTO_*` Worker values read from Secrets
+   Manager by `bitwarden/sm-action` just before them, scoped to those two steps as environment variables. Both scripts start with
    `scripts/require-deploy-checkout.sh`, which refuses unless the checkout is exactly
    `origin/deploy`.
 4. The same push runs `release.yml` (below).

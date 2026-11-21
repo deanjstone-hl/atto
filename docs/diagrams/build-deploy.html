@@ -69,7 +69,7 @@
     <div class="scroll">
     <svg viewBox="0 0 360 552" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="atto1-deploy-title atto1-deploy-desc">
       <title id="atto1-deploy-title">atto1 build and deploy</title>
-      <desc id="atto1-deploy-desc">A push to main runs the check. The owner approves on the ops hub, which fast-forwards deploy. The deploy workflow runs the gates, renders the Worker config from Actions secrets, applies D1 migrations and deploys the Worker. The release workflow tests, or reuses main's CI run, and tags a version.</desc>
+      <desc id="atto1-deploy-desc">A push to main runs the check. The owner approves on the ops hub, which fast-forwards deploy. The deploy workflow runs the gates, reads the Worker values from Secrets Manager with sm-action, renders the Worker config, applies D1 migrations and deploys the Worker. The release workflow tests, or reuses main's CI run, and tags a version.</desc>
       <defs>
         <marker id="atto1-deploy-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="head-soft" points="0 0, 8 3, 0 6"/></marker>
         <marker id="atto1-deploy-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon class="head-teal" points="0 0, 8 3, 0 6"/></marker>
@@ -127,7 +127,7 @@
       <g id="step-atto1-deploy-render" class="step">
       <rect class="node ext" x="16" y="288" width="152" height="48" rx="6"/>
       <text class="name" x="92" y="309">Render config</text>
-      <text class="sub" x="92" y="324">values from Actions secrets</text>
+      <text class="sub" x="92" y="324">values from Secrets Manager</text>
       </g>
       <g id="step-atto1-deploy-release" class="step">
       <rect class="node" x="192" y="288" width="152" height="48" rx="6"/>
@@ -154,7 +154,7 @@
       <text class="key" x="249" y="544">Calls</text>
     </svg>
     </div>
-    <p class="src">Sources: <code>README.md</code> (Private values, Deploy, Releases), <code>docs/deploy-branch.md</code>, <code>.github/workflows/deploy.yml</code>, <code>release.yml</code>, <code>scripts/render-wrangler.ts</code>. The deploy job runs on GitHub-hosted <code>ubuntu-latest</code>; its Cloudflare credentials and the Worker values are repository secrets scoped to the migrate and deploy steps. A migration is not undone by a revert: write a reversing migration.</p>
+    <p class="src">Sources: <code>README.md</code> (Private values, Deploy, Releases), <code>docs/deploy-branch.md</code>, <code>.github/workflows/deploy.yml</code>, <code>release.yml</code>, <code>scripts/render-wrangler.ts</code>. The deploy job runs on GitHub-hosted <code>ubuntu-latest</code>; its Cloudflare credentials are repository secrets and the Worker values come from Secrets Manager through sm-action, all scoped to the migrate and deploy steps. A migration is not undone by a revert: write a reversing migration.</p>
   </div>
 </body>
 </html>

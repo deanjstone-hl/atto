@@ -29,7 +29,7 @@ Bitwarden Secrets Manager and are read by name; run `bash scripts/scrub-scan.sh`
 adds one. The app is served by a Cloudflare Worker (`worker/`) behind
 Cloudflare Access, over a D1 database (ADR-005). The Worker's only settings are `ACCESS_TEAM_DOMAIN`
 and `ACCESS_AUD`, `vars` in `wrangler.jsonc` held as `@@<bws secret name>@@` placeholders that
-`scripts/render-wrangler.ts` fills at deploy time from the environment, which `deploy.yml` fills from plain Actions secrets (`.env.example` lists them); empty, the Worker refuses every request. Two more,
+`scripts/render-wrangler.ts` fills at deploy time from the environment, which `deploy.yml` fills from the `actions` project of Secrets Manager through `bitwarden/sm-action` (`.env.example` lists them); empty, the Worker refuses every request. Two more,
 `INGEST_CLIENT_ID` and `INGEST_OWNER_SUBJECT`, name the BYD collector's one Access service token (ADR-006);
 `TRIGGER_CLIENT_ID` names the phone's, a second token that reaches only `POST /api/collect/trigger` (atto/6, ADR-006 Amendment 1);
 empty, every service token is refused. CI stays safe for fork pull requests: every job runs on

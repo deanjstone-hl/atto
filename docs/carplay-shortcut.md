@@ -49,7 +49,7 @@ These are live changes, so they are yours (tracked in
    writes it to the Actions secret `ATTO_TRIGGER_CLIENT_ID` on `deanjstone/atto` and to Secrets
    Manager under the same name ([public-cutover.md](public-cutover.md)). It must be done
    **before** the next promotion: `deploy.yml` renders `wrangler.jsonc` from the Actions secrets
-   and stops, changing nothing, while one is missing. It prints no value, and checks by reading
+   and stops, changing nothing, while one is missing. (Since atto/10 `deploy.yml` reads the six `ATTO_*` values from the `actions` project of Secrets Manager instead; this step ran before that, and the key is now in `actions`.) It prints no value, and checks by reading
    back that the policy, the Actions secret and the Secrets Manager key exist.
 3. **Promote** `main` as usual ([deploy-branch.md](deploy-branch.md)). The push to `deploy`
    applies migration `0002_collect_triggers.sql` and deploys the Worker.

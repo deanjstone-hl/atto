@@ -13,14 +13,19 @@ nothing private is in any commit. Keep it that way.
 
 ## Where each private value lives
 
-In Bitwarden Secrets Manager (BWS) as `ATTO_*` keys (the `<REPO>_<KEY>` layout of
-[argus-config/1414](https://github.com/deanjstone/argus-config/issues/1414)), and as plain Actions secrets of
-the same names. `deploy.yml` hands the Actions secrets to its two wrangler steps as environment variables, so
-CI never calls Secrets Manager: no machine account and no `BWS_ACCESS_TOKEN` secret. A placeholder name in
+In the `actions` project of Bitwarden Secrets Manager (BWS) as `ATTO_*` keys (the `<REPO>_<KEY>` layout of
+[argus-config/1414](https://github.com/deanjstone/argus-config/issues/1414)). `deploy.yml` reads them with
+`bitwarden/sm-action` (pinned by commit SHA), using the Actions secret `BWS_ACCESS_TOKEN`, the token of the
+read-only machine account `actions-read` (Can read on `actions` only), and the action exports them as masked
+environment variables to the two wrangler steps, the last steps of the job. It looks a secret up by id, so the
+`secrets:` block of the `Read the Worker values from Secrets Manager` step is the one place that pairs each id
+with its variable; an id names a secret and reads nothing without the token, and `.gitleaks.toml` allows a
+UUID only on such a `<id> > <NAME>` line. `scripts/owner-steps/10.sh` moved the keys into `actions` (ids
+unchanged). A placeholder name in
 `wrangler.jsonc` is the environment variable and the BWS key at once; `scripts/render-wrangler.ts` reads each
 from the environment at deploy time (by hand it falls back to Secrets Manager with your own token).
 
-| Key (BWS secret and Actions secret) | Used by |
+| Key (BWS secret in `actions`) | Used by |
 |---|---|
 | `ATTO_D1_DATABASE_ID` | D1 `database_id` |
 | `ATTO_ACCESS_TEAM_DOMAIN` | Worker var `ACCESS_TEAM_DOMAIN` |
@@ -29,7 +34,7 @@ from the environment at deploy time (by hand it falls back to Secrets Manager wi
 | `ATTO_INGEST_OWNER_SUBJECT` | Worker var `INGEST_OWNER_SUBJECT` |
 | `ATTO_TRIGGER_CLIENT_ID` | Worker var `TRIGGER_CLIENT_ID`, the phone's CarPlay service token (atto/6; deploy fails closed at the render step while the secret is missing) |
 
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are Actions secrets too. `pnpm run db:migrate` and
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are still plain Actions secrets (their `ATTO_CLOUDFLARE_*` copies in `actions` exist for the change that maps their ids). `pnpm run db:migrate` and
 `pnpm run deploy` run `node scripts/render-wrangler.ts`, which writes the gitignored `wrangler.deploy.jsonc`
 (mode 600) and passes it to wrangler with `--config`. An unrendered file cannot go live by accident: the
 placeholders are not a team domain or an audience, so the Worker refuses every request, and wrangler rejects

@@ -144,10 +144,12 @@ supplies the credentials, never a file in the repo.
 
 **None of those ids is in the tree.** `wrangler.jsonc` holds `@@ATTO_…@@` placeholders; where this list says
 "put it in `wrangler.jsonc`", store it in Bitwarden Secrets Manager and as an Actions secret of the same name
-instead (`ATTO_D1_DATABASE_ID`, `ATTO_ACCESS_AUD`, `ATTO_ACCESS_TEAM_DOMAIN`, see [public-cutover.md](public-cutover.md)):
-the deploy workflow hands them to the two wrangler steps as environment variables and
-`scripts/render-wrangler.ts` renders them into the gitignored `wrangler.deploy.jsonc`. No machine account or
-`BWS_ACCESS_TOKEN` secret is involved.
+instead (`ATTO_D1_DATABASE_ID`, `ATTO_ACCESS_AUD`, `ATTO_ACCESS_TEAM_DOMAIN`, see [public-cutover.md](public-cutover.md)),
+in the `actions` project: the deploy workflow reads them with `bitwarden/sm-action` (by secret id, mapped in
+`deploy.yml`; atto/10), hands them to the two wrangler steps as environment variables and
+`scripts/render-wrangler.ts` renders them into the gitignored `wrangler.deploy.jsonc`. The one Actions secret
+involved is `BWS_ACCESS_TOKEN`. A new key needs a secret in `actions` and an `<id> > <NAME>` line in `deploy.yml`,
+or the render step stops on an empty value.
 
 1. **Create the database**, then store the `database_id` it prints in Secrets Manager as
    `ATTO_D1_DATABASE_ID`:
