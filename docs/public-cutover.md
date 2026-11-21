@@ -1,8 +1,8 @@
 ---
-summary: "atto is a public repository with no private value in the tree: where each private value lives (Bitwarden Secrets Manager ATTO_* keys and Actions secrets of the same names), what keeps CI safe against fork pull requests, and the scrub scan"
+summary: "atto is a public repository with no private value in the tree: where each private value lives (Bitwarden Secrets Manager ATTO_* keys in the actions project, read by deploy.yml through sm-action), what keeps CI safe against fork pull requests, and the scrub scan"
 read_when:
   - "adding an id, an address, an email or a fixture that looks like one to the tree"
-  - "changing what the Worker or deploy.yml reads as an Actions secret"
+  - "changing what the Worker or deploy.yml reads from Secrets Manager"
   - "a fork pull request, a self-hosted runner or a new workflow trigger on this repository"
 ---
 
@@ -18,7 +18,7 @@ In the `actions` project of Bitwarden Secrets Manager (BWS) as `ATTO_*` keys (th
 `bitwarden/sm-action` (pinned by commit SHA), using the Actions secret `BWS_ACCESS_TOKEN`, the token of the
 read-only machine account `actions-read` (Can read on `actions` only), and the action exports them as masked
 environment variables to the two wrangler steps, the last steps of the job. It looks a secret up by id, so the
-`secrets:` block of the `Read the Worker values from Secrets Manager` step is the one place that pairs each id
+`secrets:` block of the `Read the deploy values from Secrets Manager` step is the one place that pairs each id
 with its variable; an id names a secret and reads nothing without the token, and `.gitleaks.toml` allows a
 UUID only on such a `<id> > <NAME>` line. `scripts/owner-steps/10.sh` moved the keys into `actions` (ids
 unchanged). A placeholder name in
@@ -34,7 +34,7 @@ from the environment at deploy time (by hand it falls back to Secrets Manager wi
 | `ATTO_INGEST_OWNER_SUBJECT` | Worker var `INGEST_OWNER_SUBJECT` |
 | `ATTO_TRIGGER_CLIENT_ID` | Worker var `TRIGGER_CLIENT_ID`, the phone's CarPlay service token (atto/6; deploy fails closed at the render step while the secret is missing) |
 
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are still plain Actions secrets (their `ATTO_CLOUDFLARE_*` copies in `actions` exist for the change that maps their ids). `pnpm run db:migrate` and
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` come the same way, from the keys `ATTO_CLOUDFLARE_API_TOKEN` (a copy of `ci-deploy-atto1`) and `ATTO_CLOUDFLARE_ACCOUNT_ID`, exported under the names wrangler reads. `pnpm run db:migrate` and
 `pnpm run deploy` run `node scripts/render-wrangler.ts`, which writes the gitignored `wrangler.deploy.jsonc`
 (mode 600) and passes it to wrangler with `--config`. An unrendered file cannot go live by accident: the
 placeholders are not a team domain or an audience, so the Worker refuses every request, and wrangler rejects

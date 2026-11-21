@@ -154,7 +154,7 @@
       <text class="key" x="249" y="544">Calls</text>
     </svg>
     </div>
-    <p class="src">Sources: <code>README.md</code> (Private values, Deploy, Releases), <code>docs/deploy-branch.md</code>, <code>.github/workflows/deploy.yml</code>, <code>release.yml</code>, <code>scripts/render-wrangler.ts</code>. The deploy job runs on GitHub-hosted <code>ubuntu-latest</code>; its Cloudflare credentials are repository secrets and the Worker values come from Secrets Manager through sm-action, all scoped to the migrate and deploy steps. A migration is not undone by a revert: write a reversing migration.</p>
+    <p class="src">Sources: <code>README.md</code> (Private values, Deploy, Releases), <code>docs/deploy-branch.md</code>, <code>.github/workflows/deploy.yml</code>, <code>release.yml</code>, <code>scripts/render-wrangler.ts</code>. The deploy job runs on GitHub-hosted <code>ubuntu-latest</code>; its Cloudflare credentials and the Worker values come from Secrets Manager through sm-action, scoped to the migrate and deploy steps. A migration is not undone by a revert: write a reversing migration.</p>
   </div>
 </body>
 </html>

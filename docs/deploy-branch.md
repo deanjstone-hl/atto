@@ -140,10 +140,10 @@ Nothing below exists until the owner runs it. Agents prepare it and never run it
 is a global tool (ADR-002); `wrangler login` or a `CLOUDFLARE_API_TOKEN` from Bitwarden
 supplies the credentials, never a file in the repo.
 
-**Status (7 Nov 2026, atto1/72):** first-time setup is done. The D1 database `atto1` exists (region OC), the Access application `atto1` (self-hosted, `atto1.myargus.cc`, one "owner only" Allow policy, 168h session) exists, and both repository secrets are set from the `ci-deploy-atto1` token, which is kept in Bitwarden Secrets Manager.
+**Status (7 Nov 2026, atto1/72):** first-time setup is done. The D1 database `atto1` exists (region OC), the Access application `atto1` (self-hosted, `atto1.myargus.cc`, one "owner only" Allow policy, 168h session) exists, and the Cloudflare credentials were set from the `ci-deploy-atto1` token, which is kept in Bitwarden Secrets Manager (since atto/10 they reach CI as the `actions` keys `ATTO_CLOUDFLARE_API_TOKEN` and `ATTO_CLOUDFLARE_ACCOUNT_ID`).
 
 **None of those ids is in the tree.** `wrangler.jsonc` holds `@@ATTO_…@@` placeholders; where this list says
-"put it in `wrangler.jsonc`", store it in Bitwarden Secrets Manager and as an Actions secret of the same name
+"put it in `wrangler.jsonc`", store it in Bitwarden Secrets Manager
 instead (`ATTO_D1_DATABASE_ID`, `ATTO_ACCESS_AUD`, `ATTO_ACCESS_TEAM_DOMAIN`, see [public-cutover.md](public-cutover.md)),
 in the `actions` project: the deploy workflow reads them with `bitwarden/sm-action` (by secret id, mapped in
 `deploy.yml`; atto/10), hands them to the two wrangler steps as environment variables and
@@ -167,16 +167,11 @@ or the render step stops on an empty value.
 
    Neither is a credential, but both name the owner's Cloudflare account, so neither is committed.
    While either is empty the Worker answers 503 to everything.
-3. **Set the two repository secrets** `deploy.yml` reads. Create a Cloudflare API token
+3. **Store the two Cloudflare credentials** `deploy.yml` reads, in the `actions` project of Secrets Manager as
+   `ATTO_CLOUDFLARE_API_TOKEN` and `ATTO_CLOUDFLARE_ACCOUNT_ID`, and map their ids in the `secrets:` block of
+   `deploy.yml` (`<id> > CLOUDFLARE_API_TOKEN`, `<id> > CLOUDFLARE_ACCOUNT_ID`). Create a Cloudflare API token
    (My Profile > API Tokens > Create Token) with `Workers Scripts: Edit`, `D1: Edit` and
    `Workers Routes: Edit` on the account and the `myargus.cc` zone, and keep it in Bitwarden.
-   Then, from a terminal (each command reads the value from stdin; neither is echoed):
-
-   ```bash
-   gh secret set CLOUDFLARE_API_TOKEN -R deanjstone/atto
-   gh secret set CLOUDFLARE_ACCOUNT_ID -R deanjstone/atto
-   ```
-
    The account id is on the Cloudflare dashboard, Workers & Pages overview. The workflow
    exposes them only to the migrate and deploy steps.
 4. **Promote** the change (below). `deploy.yml` renders the config from Secrets Manager.
