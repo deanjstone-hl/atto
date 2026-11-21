@@ -6,9 +6,9 @@ import { describe, expect, it } from 'vitest'
 
 // scripts/owner-steps/10.sh is run live by the owner (atto/10). These cases run it against stub
 // bws, bw and gh programs that serve canned Secrets Manager and GitHub state and log every call,
-// so they prove what it would move, create and delete without touching either service. The
-// script needs jq; a host without it skips the file rather than failing the deploy Test step
-// (atto1/85), and main CI runs it.
+// so they prove what it would move and delete without touching either service. The script needs
+// jq; a host without it skips the file rather than failing the deploy Test step (atto1/85), and
+// main CI runs it.
 
 const root = join(import.meta.dirname, '../..')
 const script = join(root, 'scripts/owner-steps/10.sh')
@@ -16,20 +16,22 @@ const hasJq = spawnSync('jq', ['--version']).status === 0
 
 const SOURCE = 'proj-personal'
 const ACTIONS = 'proj-actions'
-const API_TOKEN_VALUE = 'cloudflare-api-token-VALUE'
-const ACCOUNT_ID_VALUE = 'cloudflare-account-id-VALUE'
 const WORKER_VALUE = 'worker-value-VALUE'
 const SCOPED_TOKEN = 'scoped-token-VALUE'
 const OWNER_TOKEN = 'owner-token-VALUE'
-const secretValues = [API_TOKEN_VALUE, ACCOUNT_ID_VALUE, WORKER_VALUE, SCOPED_TOKEN, OWNER_TOKEN]
+const secretValues = [WORKER_VALUE, SCOPED_TOKEN, OWNER_TOKEN]
 
 // The map deploy.yml hands to sm-action is the source of truth for the ids: read it the way the
-// script does, so the world holds exactly the ids the workflow asks for.
+// script does, so the world holds exactly the ids the workflow asks for. A variable with no ATTO_
+// prefix (wrangler's CLOUDFLARE_*) is stored under the key ATTO_<variable>.
 const workflowText = readFileSync(join(root, '.github/workflows/deploy.yml'), 'utf8')
-const workerSecrets = [...workflowText.matchAll(/^\s+([0-9a-f-]{36}) > ([A-Z0-9_]+)\s*$/gm)].map((match) => ({ id: match[1], key: match[2] }))
-const CF_TOKEN = { key: 'ATTO_CLOUDFLARE_API_TOKEN', source: 'ci-deploy-atto1', id: 'id-cf-token', sourceId: 'id-ci-deploy' }
-const CF_ACCOUNT = { key: 'ATTO_CLOUDFLARE_ACCOUNT_ID', source: 'ARGUS_CLOUDFLARE_ACCOUNT_ID', id: 'id-cf-account', sourceId: 'id-argus-account' }
-const OLD_NAMES = [...workerSecrets.map((secret) => secret.key), 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']
+const mapped = [...workflowText.matchAll(/^\s+([0-9a-f-]{36}) > ([A-Z0-9_]+)\s*$/gm)].map((match) => ({
+  id: match[1],
+  name: match[2],
+  key: match[2].startsWith('ATTO_') ? match[2] : `ATTO_${match[2]}`,
+}))
+const names = mapped.map((entry) => entry.name)
+const cloudflare = mapped.filter((entry) => entry.name.startsWith('CLOUDFLARE_'))
 
 const bwsStub = [
   '#!/bin/bash',
@@ -46,11 +48,6 @@ const bwsStub = [
   '  "secret get")',
   '    id=""; while [ $# -gt 0 ]; do case "$1" in -o) shift 2 ;; *) id="$1"; shift ;; esac; done',
   '    out=$(view | jq -c --arg i "$id" ".[] | select(.id == \\$i)"); [ -n "$out" ] || { echo "bws: not found" >&2; exit 1; }; echo "$out" ;;',
-  '  "secret create")',
-  '    pos=(); while [ $# -gt 0 ]; do case "$1" in --note|-o) shift 2 ;; *) pos+=("$1"); shift ;; esac; done',
-  '    [ -n "${STUB_BWS_FAIL:-}" ] && { echo "bws: simulated failure" >&2; exit 1; }',
-  '    echo "bws create ${pos[0]} project=${pos[2]}" >> "$STUB_DIR/calls.log"; echo "${pos[1]}" >> "$STUB_DIR/bws.values"',
-  '    touch "$STUB_DIR/written" ;;',
   '  "secret edit")',
   '    id=""; project=""; while [ $# -gt 0 ]; do case "$1" in --project-id) project=$2; shift 2 ;; --value|--key|--note|-o) shift 2 ;; *) id="$1"; shift ;; esac; done',
   '    [ -n "${STUB_BWS_FAIL:-}" ] && { echo "bws: simulated failure" >&2; exit 1; }',
@@ -89,34 +86,18 @@ function write(path: string, body: string | object, mode?: number) {
 }
 
 type Where = 'source' | 'actions'
-type State = {
-  worker?: Where | Partial<Record<string, Where>>
-  cf?: Where | 'absent'
-  missingWorker?: string[]
-  hasCfSources?: boolean
-}
+// where: one project for every key, or a project per variable name (the rest in the source project).
+type State = { where?: Where | Partial<Record<string, Where>>; missing?: string[] }
 
-const listFor = ({ worker = 'source', cf = 'absent', missingWorker = [], hasCfSources = true }: State) => {
-  const project = (where: Where) => (where === 'actions' ? ACTIONS : SOURCE)
+const listFor = ({ where = 'source', missing = [] }: State) => {
+  const project = (place: Where) => (place === 'actions' ? ACTIONS : SOURCE)
   const items: { id: string; key: string; value: string; projectId: string }[] = [
     { id: 'id-admin', key: 'CLOUDFLARE-TOKEN-ADMIN', value: OWNER_TOKEN, projectId: SOURCE },
   ]
-  if (hasCfSources) {
-    items.push(
-      { id: CF_TOKEN.sourceId, key: CF_TOKEN.source, value: API_TOKEN_VALUE, projectId: SOURCE },
-      { id: CF_ACCOUNT.sourceId, key: CF_ACCOUNT.source, value: ACCOUNT_ID_VALUE, projectId: SOURCE },
-    )
-  }
-  for (const secret of workerSecrets) {
-    if (missingWorker.includes(secret.key)) continue
-    const where = typeof worker === 'string' ? worker : (worker[secret.key] ?? 'source')
-    items.push({ id: secret.id, key: secret.key, value: WORKER_VALUE, projectId: project(where) })
-  }
-  if (cf !== 'absent') {
-    items.push(
-      { id: CF_TOKEN.id, key: CF_TOKEN.key, value: API_TOKEN_VALUE, projectId: project(cf) },
-      { id: CF_ACCOUNT.id, key: CF_ACCOUNT.key, value: ACCOUNT_ID_VALUE, projectId: project(cf) },
-    )
+  for (const entry of mapped) {
+    if (missing.includes(entry.name)) continue
+    const place = typeof where === 'string' ? where : (where[entry.name] ?? 'source')
+    items.push({ id: entry.id, key: entry.key, value: WORKER_VALUE, projectId: project(place) })
   }
   return items
 }
@@ -136,7 +117,7 @@ function world(before: State, after?: State) {
   ])
   write(join(stub, 'bws_list.json'), listFor(before))
   if (after) write(join(stub, 'bws_list.after.json'), listFor(after))
-  write(join(stub, 'actions_secrets.txt'), [...OLD_NAMES, 'BWS_ACCESS_TOKEN'].join('\n'))
+  write(join(stub, 'actions_secrets.txt'), [...names, 'BWS_ACCESS_TOKEN'].join('\n'))
   write(join(stub, 'run_list.json'), [{ conclusion: 'success', headSha: 'abc123', databaseId: 42 }])
   write(join(stub, 'workflow_at_sha.yml'), workflowText)
 
@@ -151,7 +132,7 @@ function world(before: State, after?: State) {
         ...env,
       },
     })
-    const read = (name: string) => (existsSync(join(stub, name)) ? readFileSync(join(stub, name), 'utf8') : '')
+    const read = (file: string) => (existsSync(join(stub, file)) ? readFileSync(join(stub, file), 'utf8') : '')
     return {
       ...result,
       all: `${result.stdout}${result.stderr}`,
@@ -163,25 +144,28 @@ function world(before: State, after?: State) {
   return { run, stub }
 }
 
-const allActions: State = { worker: 'actions', cf: 'actions' }
-const writes = (calls: string[]) => calls.filter((call) => /^bws (create|move)|^gh delete/.test(call))
+const allActions: State = { where: 'actions' }
+const writes = (calls: string[]) => calls.filter((call) => /^bws move|^gh delete/.test(call))
 const noSecretPrinted = (all: string) => {
   for (const value of secretValues) expect(all).not.toContain(value)
 }
 
 describe.skipIf(!hasJq)('scripts/owner-steps/10.sh', () => {
-  it('reads the six ids from deploy.yml, which the tests rely on', () => {
-    expect(workerSecrets.map((secret) => secret.key).sort()).toEqual([
+  it('reads the eight ids from deploy.yml, which the tests rely on', () => {
+    expect([...names].sort()).toEqual([
       'ATTO_ACCESS_AUD',
       'ATTO_ACCESS_TEAM_DOMAIN',
       'ATTO_D1_DATABASE_ID',
       'ATTO_INGEST_CLIENT_ID',
       'ATTO_INGEST_OWNER_SUBJECT',
       'ATTO_TRIGGER_CLIENT_ID',
+      'CLOUDFLARE_ACCOUNT_ID',
+      'CLOUDFLARE_API_TOKEN',
     ])
+    expect(cloudflare.map((entry) => entry.key).sort()).toEqual(['ATTO_CLOUDFLARE_ACCOUNT_ID', 'ATTO_CLOUDFLARE_API_TOKEN'])
   })
 
-  it('refuses an unknown argument and both modes at once', () => {
+  it('refuses an unknown argument', () => {
     expect(world({}).run(['--now']).status).toBe(2)
     expect(world({}).run(['--delete-actions-secrets', '--dry-run', '--extra']).status).toBe(2)
   })
@@ -197,49 +181,30 @@ describe.skipIf(!hasJq)('scripts/owner-steps/10.sh', () => {
     })
 
     it('stops before any change when an id in deploy.yml has no secret behind it', () => {
-      const missing = workerSecrets[0].key
-      const result = world({ missingWorker: [missing] }).run([])
+      const missing = cloudflare[0]
+      const result = world({ missing: [missing.name] }).run([])
       expect(result.status).toBe(1)
-      expect(result.stderr).toMatch(new RegExp(`pre-flight FAILED: .*${missing}`))
+      expect(result.stderr).toMatch(new RegExp(`pre-flight FAILED: .*${missing.key}`))
       expect(writes(result.calls)).toEqual([])
     })
 
-    it('stops before any change when a key sits in neither project', () => {
-      const result = world({ worker: 'source', cf: 'absent', hasCfSources: false }).run([])
-      expect(result.status).toBe(1)
-      expect(result.stderr).toMatch(/pre-flight FAILED: .*ATTO_CLOUDFLARE_API_TOKEN/)
-      expect(writes(result.calls)).toEqual([])
-    })
-
-    it('--dry-run prints every action, reads state, and writes nothing', () => {
+    it('--dry-run prints every move, reads state, and writes nothing', () => {
       const result = world({}).run(['--dry-run'])
       expect(result.status).toBe(0)
       expect(writes(result.calls)).toEqual([])
-      for (const { key, id } of workerSecrets) {
+      for (const { key, id } of mapped) {
         expect(result.stdout).toMatch(new RegExp(`\\[dry-run\\] .*move ${key} \\(${id}\\).*personal-machine-secrets.*actions`))
       }
-      expect(result.stdout).toMatch(/\[dry-run\] .*create ATTO_CLOUDFLARE_API_TOKEN in actions from ci-deploy-atto1/)
-      expect(result.stdout).toMatch(/\[dry-run\] .*create ATTO_CLOUDFLARE_ACCOUNT_ID in actions from ARGUS_CLOUDFLARE_ACCOUNT_ID/)
       noSecretPrinted(result.all)
     })
 
-    it('moves the six keys by id into actions, creates the two Cloudflare keys there, and prints no value', () => {
-      const { run, stub } = world({}, allActions)
-      const result = run([])
+    it('moves every key deploy.yml maps by id into actions, the Cloudflare pair under its ATTO_ key, and prints no value', () => {
+      const result = world({}, allActions).run([])
       expect(result.stderr).not.toMatch(/FAILED|error/i)
       expect(result.status).toBe(0)
-      for (const { id } of workerSecrets) expect(result.calls).toContain(`bws move ${id} project=${ACTIONS}`)
-      expect(result.calls).toContain(`bws create ${CF_TOKEN.key} project=${ACTIONS}`)
-      expect(result.calls).toContain(`bws create ${CF_ACCOUNT.key} project=${ACTIONS}`)
-      expect(readFileSync(join(stub, 'bws.values'), 'utf8').split('\n').filter(Boolean)).toEqual([API_TOKEN_VALUE, ACCOUNT_ID_VALUE])
-      expect(result.stdout).toMatch(/verify ok: the six deploy\.yml ids are in actions/)
+      expect(writes(result.calls).sort()).toEqual(mapped.map((entry) => `bws move ${entry.id} project=${ACTIONS}`).sort())
+      expect(result.stdout).toMatch(/verify ok: the 8 deploy\.yml ids are in actions/)
       noSecretPrinted(result.all)
-    })
-
-    it('prints the ids of the two new Cloudflare secrets, for the workflow change that follows', () => {
-      const result = world({}, allActions).run([])
-      expect(result.stdout).toContain(`${CF_TOKEN.id} > ATTO_CLOUDFLARE_API_TOKEN`)
-      expect(result.stdout).toContain(`${CF_ACCOUNT.id} > ATTO_CLOUDFLARE_ACCOUNT_ID`)
     })
 
     it('is read-only when everything is already in place', () => {
@@ -249,15 +214,15 @@ describe.skipIf(!hasJq)('scripts/owner-steps/10.sh', () => {
       expect(result.stdout).toMatch(/nothing to change/)
     })
 
-    it('moves only the keys not yet in actions, and does not recreate a Cloudflare key that exists', () => {
-      const first = workerSecrets[0]
-      const partial: State = { worker: Object.fromEntries(workerSecrets.slice(1).map((secret) => [secret.key, 'actions' as Where])), cf: 'actions' }
+    it('moves only the keys not yet in actions', () => {
+      const [first, ...rest] = mapped
+      const partial: State = { where: Object.fromEntries(rest.map((entry) => [entry.name, 'actions' as Where])) }
       const result = world(partial, allActions).run([])
       expect(result.status).toBe(0)
       expect(writes(result.calls)).toEqual([`bws move ${first.id} project=${ACTIONS}`])
     })
 
-    it('fails, naming the key, when a move or create cannot be done, and goes on to no later step', () => {
+    it('fails, naming the key, when a move cannot be done', () => {
       const result = world({}, allActions).run([], { STUB_BWS_FAIL: '1' })
       expect(result.status).not.toBe(0)
       expect(result.stderr).toMatch(/error: could not move/)
@@ -265,9 +230,9 @@ describe.skipIf(!hasJq)('scripts/owner-steps/10.sh', () => {
     })
 
     it('fails the verify block when a key is still outside actions after the run', () => {
-      const result = world({}, { worker: 'source', cf: 'actions' }).run([])
+      const result = world({}, { where: { [names[0]]: 'source', ...Object.fromEntries(names.slice(1).map((name) => [name, 'actions' as Where])) } }).run([])
       expect(result.status).not.toBe(0)
-      expect(result.stderr).toMatch(/verify FAILED: the six deploy\.yml ids are in actions/)
+      expect(result.stderr).toMatch(/verify FAILED: the 8 deploy\.yml ids are in actions/)
     })
 
     describe('with a token scoped to the actions project', () => {
@@ -311,23 +276,22 @@ describe.skipIf(!hasJq)('scripts/owner-steps/10.sh', () => {
 
   describe('--delete-actions-secrets, after a green deploy on the new path', () => {
     const del = ['--delete-actions-secrets']
-    const worker = workerSecrets.map((secret) => secret.key)
 
-    it('deletes the six Worker secrets the green workflow no longer reads, and keeps the Cloudflare pair and BWS_ACCESS_TOKEN', () => {
+    it('deletes the eight Actions secrets the green workflow no longer reads, and keeps BWS_ACCESS_TOKEN', () => {
       const result = world(allActions).run(del)
       expect(result.stderr).not.toMatch(/FAILED|error/i)
       expect(result.status).toBe(0)
-      expect(result.calls.filter((call) => call.startsWith('gh delete')).sort()).toEqual(worker.map((name) => `gh delete ${name}`).sort())
-      expect(result.remaining.sort()).toEqual(['BWS_ACCESS_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'])
+      expect(result.calls.filter((call) => call.startsWith('gh delete')).sort()).toEqual(names.map((name) => `gh delete ${name}`).sort())
+      expect(result.remaining).toEqual(['BWS_ACCESS_TOKEN'])
       expect(result.stdout).toMatch(/verify ok: BWS_ACCESS_TOKEN is still set/)
     })
 
-    it('also deletes a Cloudflare secret once the green workflow no longer reads it', () => {
+    it('keeps an Actions secret the green workflow still reads', () => {
       const { run, stub } = world(allActions)
-      writeFileSync(join(stub, 'workflow_at_sha.yml'), workflowText.replaceAll('secrets.CLOUDFLARE_', 'steps.sm.outputs.CF_'))
+      writeFileSync(join(stub, 'workflow_at_sha.yml'), `${workflowText}\n          X: \${{ secrets.CLOUDFLARE_API_TOKEN }}\n`)
       const result = run(del)
       expect(result.status).toBe(0)
-      expect(result.remaining).toEqual(['BWS_ACCESS_TOKEN'])
+      expect(result.remaining.sort()).toEqual(['BWS_ACCESS_TOKEN', 'CLOUDFLARE_API_TOKEN'])
     })
 
     it('reads the workflow at the green run SHA, on the deploy branch', () => {
@@ -364,7 +328,7 @@ describe.skipIf(!hasJq)('scripts/owner-steps/10.sh', () => {
 
     it('deletes nothing when BWS_ACCESS_TOKEN is not set, since the deploy could not have used it', () => {
       const { run, stub } = world(allActions)
-      write(join(stub, 'actions_secrets.txt'), OLD_NAMES.join('\n'))
+      write(join(stub, 'actions_secrets.txt'), names.join('\n'))
       const result = run(del)
       expect(result.status).toBe(1)
       expect(result.stderr).toMatch(/pre-flight FAILED: .*BWS_ACCESS_TOKEN/)
@@ -372,16 +336,20 @@ describe.skipIf(!hasJq)('scripts/owner-steps/10.sh', () => {
     })
 
     it('--dry-run lists what it would delete and deletes nothing', () => {
-      const result = world(allActions).run([...del, '--dry-run'])
+      const { run, stub } = world(allActions)
+      writeFileSync(join(stub, 'workflow_at_sha.yml'), `${workflowText}\n          X: \${{ secrets.CLOUDFLARE_API_TOKEN }}\n`)
+      const result = run([...del, '--dry-run'])
       expect(result.status).toBe(0)
       expect(writes(result.calls)).toEqual([])
-      for (const name of worker) expect(result.stdout).toMatch(new RegExp(`\\[dry-run\\] .*delete Actions secret ${name}\\b`))
+      for (const name of names.filter((value) => value !== 'CLOUDFLARE_API_TOKEN')) {
+        expect(result.stdout).toMatch(new RegExp(`\\[dry-run\\] .*delete Actions secret ${name}\\b`))
+      }
       expect(result.stdout).toMatch(/keep CLOUDFLARE_API_TOKEN: .*still reads it/)
     })
 
     it('is read-only when the secrets are already gone', () => {
       const { run, stub } = world(allActions)
-      write(join(stub, 'actions_secrets.txt'), ['BWS_ACCESS_TOKEN', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'].join('\n'))
+      write(join(stub, 'actions_secrets.txt'), 'BWS_ACCESS_TOKEN')
       const result = run(del)
       expect(result.status).toBe(0)
       expect(writes(result.calls)).toEqual([])

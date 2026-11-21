@@ -18,26 +18,22 @@
 #        bash scripts/owner-steps/10.sh --delete-actions-secrets
 #
 # What step 1 changes, and only when the state is not already as wanted (idempotent):
-#   - Moves each secret whose id deploy.yml maps (the six ATTO_* Worker values) from the project
-#     `personal-machine-secrets` to `actions`, with `bws secret edit --project-id`. The id and the
-#     value stay the same, so anything reading the id keeps working.
-#   - Creates `ATTO_CLOUDFLARE_API_TOKEN` (from `ci-deploy-atto1`) and `ATTO_CLOUDFLARE_ACCOUNT_ID`
-#     (from `ARGUS_CLOUDFLARE_ACCOUNT_ID`) in `actions`, copying the existing values. They are
-#     copies, not moves: a hand deploy still reads `ci-deploy-atto1`, and the account id belongs
-#     to argus too. It prints their new ids; the workflow change that moves the two Cloudflare
-#     credentials onto sm-action needs them (sm-action looks a secret up by id).
-#   - Verifies: each id in deploy.yml is now a secret of that name in `actions`, the two
-#     Cloudflare keys are there, and, when ATTO_ACTIONS_READ_BW_ITEM is set, that the
-#     `actions-read` token reads each of them by id and sees no key outside `actions`.
+#   - Moves each secret whose id deploy.yml maps (the six ATTO_* Worker values and the two Cloudflare
+#     credentials) from the project `personal-machine-secrets` to `actions`, with
+#     `bws secret edit --project-id`. The id and the value stay the same, so anything reading the
+#     id keeps working. A variable without the ATTO_ prefix is stored under ATTO_<variable>
+#     (CLOUDFLARE_API_TOKEN is the key ATTO_CLOUDFLARE_API_TOKEN). It creates nothing: an id
+#     that is in neither project stops the run.
+#   - Verifies: each id in deploy.yml is now a secret of that key in `actions`, and, when
+#     ATTO_ACTIONS_READ_BW_ITEM is set, that the `actions-read` token reads each of them by id and
+#     sees no key outside `actions`.
 # What step 2 changes: deletes the Actions secrets of the repository that the Deploy workflow, at
-# the head of its latest successful run on `deploy`, no longer reads (the six ATTO_* values now,
-# the Cloudflare pair once a later workflow change moves it). It refuses unless that run is green,
-# its deploy.yml uses sm-action, and BWS_ACCESS_TOKEN is set. It never deletes BWS_ACCESS_TOKEN.
+# the head of its latest successful run on `deploy`, no longer reads (all eight now). It refuses
+# unless that run is green, its deploy.yml uses sm-action, and BWS_ACCESS_TOKEN is set. It never
+# deletes BWS_ACCESS_TOKEN.
 #
-# Secrets: read inside this script, never printed, logged or put in a curl argument. `bws` 2.1.0 has
-# no stdin form for a value, so a value being copied is in that one `bws` process's arguments for a
-# moment, visible only to this user on this host. It prints key names and ids, never a value. It never
-# runs promote.sh, never pushes `deploy`, never starts a workflow.
+# Secrets: read inside this script, never printed, logged or put in a curl argument. It prints key
+# names and ids, never a value. It never runs promote.sh, never pushes `deploy`, never starts a workflow.
 set -euo pipefail
 
 REPO="${ATTO_REPO:-deanjstone/atto}"
@@ -47,10 +43,7 @@ BW_HELPER="${ATTO_BW_HELPER:-$HOME/repos/argus-config/envs/wsl2/bashrc.d/bitward
 READ_BW_ITEM="${ATTO_ACTIONS_READ_BW_ITEM:-}"
 WORKFLOW="${ATTO_WORKFLOW:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.github/workflows/deploy.yml}"
 
-# The two Cloudflare credentials: destination key in `actions`, then the key to copy from.
-CF_KEYS=(ATTO_CLOUDFLARE_API_TOKEN ATTO_CLOUDFLARE_ACCOUNT_ID)
-CF_SOURCES=(ci-deploy-atto1 ARGUS_CLOUDFLARE_ACCOUNT_ID)
-# Every Actions secret the old deploy.yml read; step 2 considers exactly these.
+# Every Actions secret an earlier deploy.yml read; step 2 considers exactly these.
 OLD_ACTIONS_SECRETS=(ATTO_D1_DATABASE_ID ATTO_ACCESS_TEAM_DOMAIN ATTO_ACCESS_AUD ATTO_INGEST_CLIENT_ID ATTO_INGEST_OWNER_SUBJECT ATTO_TRIGGER_CLIENT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID)
 
 usage() { echo "usage: $0 [--dry-run] | $0 --delete-actions-secrets [--dry-run]" >&2; exit 2; }
@@ -156,7 +149,7 @@ fi
 # =============================================================================================
 
 secrets="" source_id="" dest_id="" scoped_token=""
-pair_ids=() pair_keys=()
+pair_ids=() pair_keys=()   # the id deploy.yml maps, and the Secrets Manager key behind it
 
 secret_field() { jq -r --arg k "$1" --arg f "$2" '[.[] | select(.key == $k)][0][$f] // empty' <<< "$secrets"; }
 secret_value() { secret_field "$1" value; }
@@ -183,14 +176,13 @@ resolve_projects() {
 }
 read_workflow_map() {
   local id key
-  while read -r id key; do pair_ids+=("$id"); pair_keys+=("$key"); done < <(workflow_map "$WORKFLOW")
+  # The key is the variable name, or ATTO_<name> when the variable has no ATTO_ prefix (wrangler's CLOUDFLARE_*).
+  while read -r id name; do
+    pair_ids+=("$id")
+    case "$name" in ATTO_*) pair_keys+=("$name") ;; *) pair_keys+=("ATTO_$name") ;; esac
+  done < <(workflow_map "$WORKFLOW")
   [ "${#pair_ids[@]}" -gt 0 ]
 }
-cf_source_available() {
-  # cf_source_available <dest key> <source key>: already in actions, or there is a value to copy.
-  in_project "$1" "$dest_id" || in_project "$2" "$source_id"
-}
-
 preflight_need "jq and bws are installed" have_tools
 preflight_need "$HOME/.bws_token exists (Secrets Manager access)" test -f "$HOME/.bws_token"
 if [ "$preflight_failed" -eq 0 ]; then
@@ -205,16 +197,12 @@ if [ "$preflight_failed" -eq 0 ]; then
     preflight_need "deploy.yml's id for ${pair_keys[$i]} is a secret of that name in $SOURCE_PROJECT or $DEST_PROJECT" \
       id_in_either "${pair_ids[$i]}" "${pair_keys[$i]}"
   done
-  for i in "${!CF_KEYS[@]}"; do
-    preflight_need "${CF_KEYS[$i]} is in $DEST_PROJECT, or ${CF_SOURCES[$i]} in $SOURCE_PROJECT can be copied" \
-      cf_source_available "${CF_KEYS[$i]}" "${CF_SOURCES[$i]}"
-  done
 fi
 [ "$preflight_failed" -eq 0 ] || { echo "stopping: nothing was changed" >&2; exit 1; }
 
 # ---- plan ----------------------------------------------------------------------------------
 
-moves=() creates=()
+moves=()
 for i in "${!pair_ids[@]}"; do
   if id_is "${pair_ids[$i]}" "${pair_keys[$i]}" "$dest_id"; then
     echo "${pair_keys[$i]} (${pair_ids[$i]}): already in $DEST_PROJECT, left as is"
@@ -223,17 +211,9 @@ for i in "${!pair_ids[@]}"; do
     moves+=("$i")
   fi
 done
-for i in "${!CF_KEYS[@]}"; do
-  if in_project "${CF_KEYS[$i]}" "$dest_id"; then
-    echo "${CF_KEYS[$i]}: already in $DEST_PROJECT, left as is"
-  else
-    plan "create ${CF_KEYS[$i]} in $DEST_PROJECT from ${CF_SOURCES[$i]} (the value is copied, never printed)"
-    creates+=("$i")
-  fi
-done
-if [ "${#moves[@]}" -eq 0 ] && [ "${#creates[@]}" -eq 0 ]; then echo "nothing to change"; fi
+if [ "${#moves[@]}" -eq 0 ]; then echo "nothing to change"; fi
 if [ "$DRY_RUN" -eq 1 ]; then
-  plan "verify: each deploy.yml id is a secret of that name in $DEST_PROJECT, the two Cloudflare keys are there, and (with ATTO_ACTIONS_READ_BW_ITEM) the $DEST_PROJECT-scoped token reads them by id and sees nothing else"
+  plan "verify: each deploy.yml id is a secret of that key in $DEST_PROJECT, and (with ATTO_ACTIONS_READ_BW_ITEM) the $DEST_PROJECT-scoped token reads them by id and sees nothing else"
   exit 0
 fi
 
@@ -244,32 +224,16 @@ for i in "${moves[@]}"; do
     || die "could not move ${pair_keys[$i]} (${pair_ids[$i]}) to $DEST_PROJECT"
   plan "moved ${pair_keys[$i]} to $DEST_PROJECT"
 done
-for i in "${creates[@]}"; do
-  value=$(secret_value "${CF_SOURCES[$i]}")
-  [ -n "$value" ] || die "${CF_SOURCES[$i]} has no value to copy"
-  bws secret create --note "atto deploy, copied from ${CF_SOURCES[$i]} (atto/10)" -o none "${CF_KEYS[$i]}" "$value" "$dest_id" > /dev/null \
-    || { unset value; die "could not create ${CF_KEYS[$i]} in $DEST_PROJECT"; }
-  unset value
-  plan "created ${CF_KEYS[$i]} in $DEST_PROJECT"
-done
 
 # ---- verify --------------------------------------------------------------------------------
 
 secrets=$(bws secret list -o json) || die "could not re-read Secrets Manager"
 
-six_ids_in_dest() {
+all_ids_in_dest() {
   local i
   for i in "${!pair_ids[@]}"; do id_is "${pair_ids[$i]}" "${pair_keys[$i]}" "$dest_id" || return 1; done
 }
-cf_keys_in_dest() {
-  local key
-  for key in "${CF_KEYS[@]}"; do in_project "$key" "$dest_id" || return 1; done
-}
-verify_check "the six deploy.yml ids are in $DEST_PROJECT, each under its own key" six_ids_in_dest
-verify_check "${CF_KEYS[0]} and ${CF_KEYS[1]} are in $DEST_PROJECT" cf_keys_in_dest
-
-expected_ids=("${pair_ids[@]}")
-for key in "${CF_KEYS[@]}"; do expected_ids+=("$(secret_id_of "$key")"); done
+verify_check "the ${#pair_ids[@]} deploy.yml ids are in $DEST_PROJECT, each under its own key" all_ids_in_dest
 
 read_scoped_token() {
   local session
@@ -282,7 +246,7 @@ read_scoped_token() {
 }
 scoped_reads_each_by_id() {
   local id
-  for id in "${expected_ids[@]}"; do
+  for id in "${pair_ids[@]}"; do
     [ -n "$id" ] || return 1
     BWS_ACCESS_TOKEN="$scoped_token" bws secret get -o json "$id" > /dev/null || return 1
   done
@@ -298,14 +262,12 @@ if [ -z "$READ_BW_ITEM" ]; then
 else
   verify_check "the vault item '$READ_BW_ITEM' can be read" read_scoped_token
   if [ -n "$scoped_token" ]; then
-    verify_check "the actions-read token reads all ${#expected_ids[@]} keys of $DEST_PROJECT by id" scoped_reads_each_by_id
+    verify_check "the actions-read token reads all ${#pair_ids[@]} keys of $DEST_PROJECT by id" scoped_reads_each_by_id
     verify_check "the actions-read token sees no key outside $DEST_PROJECT" scoped_sees_only_dest
     unset scoped_token
   fi
 fi
 
 echo
-echo "Results (ids and key names only, no value):"
-for key in "${CF_KEYS[@]}"; do echo "  $(secret_id_of "$key") > $key"; done
-echo "Next: the owner approves the promotion; deploy.yml reads the six values through sm-action. A later change maps the two ids above too. Then: bash scripts/owner-steps/10.sh --delete-actions-secrets"
+echo "Next: the owner approves the promotion; deploy.yml reads every value through sm-action. After a green Deploy run: bash scripts/owner-steps/10.sh --delete-actions-secrets"
 [ "$verify_failed" -eq 0 ] || exit 1
