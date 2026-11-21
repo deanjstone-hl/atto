@@ -48,7 +48,7 @@ id = "cloudflare-id"
 description = "A 32 or 64 character hex id (account, zone, Access audience, policy group) or a UUID (D1 database id, Access user id)"
 regex = '''\b(?:[0-9a-f]{64}|[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
 
-[allowlist]
+[[allowlists]]
 description = "Placeholders and addresses that identify no one"
 regexes = [
   '''@example\.(?:com|org|net|invalid|test)\b''',
@@ -71,4 +71,14 @@ paths = [
   '''scripts/ci/release-scripts\.lock$''',
   '''scripts/heavy-lock\.lock$''',
   '''\.gitleaks\.toml$''',
+]
+
+# A Secrets Manager secret id on a bitwarden/sm-action map line in deploy.yml (atto/10): an id names a
+# secret and reads nothing without the machine account's token. gitleaks matches the whole line, so
+# the id is allowed only as `<uuid> > <ENV_NAME>` and nowhere else.
+[[allowlists]]
+description = "Secrets Manager ids in the sm-action map"
+regexTarget = "line"
+regexes = [
+  '''^\s+[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} > [A-Z][A-Z0-9_]+$''',
 ]

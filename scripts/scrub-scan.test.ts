@@ -52,4 +52,16 @@ describe.skipIf(!hasGitleaks)('scripts/scrub-scan.sh', () => {
     expect(status).toBe(1)
     expect(output).not.toContain(uuid)
   })
+
+  // deploy.yml maps each Secrets Manager secret id to its environment variable for
+  // bitwarden/sm-action (atto/10). An id names a secret and reads nothing without a token, but the
+  // UUID rule still flags it, so exactly that map line is allowed and no other line is.
+  it('allows a Secrets Manager id on an sm-action map line, and the same id anywhere else still fails', () => {
+    const uuid = ['0a1b2c3d', '4e5f', '4a6b', '8c7d', '9e0f1a2b3c4d'].join('-')
+    const allowed = scan({ 'a.yml': `          secrets: |\n            ${uuid} > ATTO_D1_DATABASE_ID\n` })
+    expect(allowed.output).toContain('scrub-scan: pass')
+    expect(allowed.status).toBe(0)
+    expect(scan({ 'a.yml': `          D1: ${uuid} > ATTO_D1_DATABASE_ID trailing\n` }).status).toBe(1)
+    expect(scan({ 'a.txt': `database_id = "${uuid}"\n` }).status).toBe(1)
+  })
 })
