@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { Reading } from './map.ts'
-import { explainReadFailure, fileStateStore, postIngest, runOnce, type RunDeps } from './run.ts'
+import { eventFromArguments, explainReadFailure, fileStateStore, postIngest, runOnce, type RunDeps } from './run.ts'
 import { emptyState, type SessionState } from './sessions.ts'
 
 const reading = (overrides: Partial<Reading> = {}): Reading => ({
@@ -265,5 +265,63 @@ describe('explainReadFailure', () => {
     const error = new Error('boom')
     expect(explainReadFailure(error, secrets)).toBe(error)
     expect(explainReadFailure('text', secrets).message).toBe('text')
+  })
+})
+
+describe('runOnce for a charge run (atto/8)', () => {
+  it.each(['charge_start', 'charge_stop'] as const)('tags the reading %s and never asks for the position', async (event) => {
+    const readCar = vi.fn(async (_withLocation: boolean) => reading())
+    const { deps, sent } = setup({ readCar })
+    await runOnce(deps, { event })
+    expect(readCar).toHaveBeenCalledWith(false)
+    expect(sent[0]).toMatchObject({ observation: { trigger_event: event, soc_pct: 53 } })
+  })
+
+  it('drops a position the reader should not have sent', async () => {
+    const { deps, sent } = setup({ readCar: async () => reading({ latitude: 0, longitude: 0 }) })
+    await runOnce(deps, { event: 'charge_start' })
+    expect(JSON.stringify(sent)).not.toMatch(/latitude|longitude/)
+  })
+
+  it('logs the tag and no position line', async () => {
+    const log = vi.fn()
+    const { deps } = setup({ log })
+    await runOnce(deps, { event: 'charge_stop' })
+    const lines = log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(lines).toContain('tagged charge_stop')
+    expect(lines).not.toMatch(/position/)
+  })
+
+  it('opens a session on a charge_start reading and closes it on a charge_stop one', async () => {
+    const charging = reading({ charge_state: 1, soc_pct: 40, observed_at: '2026-11-07T01:00:00.000Z' })
+    const first = setup({ readCar: async () => charging })
+    await runOnce(first.deps, { event: 'charge_start' })
+    expect(first.saved()).toMatchObject({ open: { startedAt: '2026-11-07T01:00:00.000Z', startSoc: 40 } })
+
+    const done = reading({ charge_state: 0, soc_pct: 80, observed_at: '2026-11-07T03:00:00.000Z' })
+    const second = setup({ readCar: async () => done }, first.saved() as SessionState)
+    await runOnce(second.deps, { event: 'charge_stop' })
+    expect(second.sent[0]).toMatchObject({
+      charging_session: { started_at: '2026-11-07T01:00:00.000Z', ended_at: '2026-11-07T03:00:00.000Z', start_soc_pct: 40, end_soc_pct: 80 },
+    })
+  })
+})
+
+describe('eventFromArguments', () => {
+  it('is no event without arguments (the timer run)', () => {
+    expect(eventFromArguments([])).toBeUndefined()
+  })
+
+  it.each(['charge_start', 'charge_stop'])('reads --event %s', (event) => {
+    expect(eventFromArguments(['--event', event])).toBe(event)
+  })
+
+  it.each([
+    ['an unknown event', ['--event', 'ignition_on']],
+    ['a CarPlay event, which only the pick-up may run', ['--event', 'carplay_connect']],
+    ['no value', ['--event']],
+    ['an unknown argument', ['--now']],
+  ])('refuses %s', (_label, args) => {
+    expect(() => eventFromArguments(args)).toThrow(/--event/)
   })
 })

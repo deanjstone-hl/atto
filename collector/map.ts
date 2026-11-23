@@ -1,7 +1,7 @@
 // Turns what read-byd.py prints into what POST /api/ingest/byd accepts (ADR-006).
 // Pure: no network, no clock except the one passed in.
 
-import type { TriggerEvent } from '../worker/trigger-events.ts'
+import { isTriggerEvent, type ReadingEvent } from '../worker/trigger-events.ts'
 
 // What the reader prints, and all of it. It never carries door or tyre data, and it carries
 // the position only when it was run with --with-location, which only a CarPlay-triggered
@@ -27,8 +27,9 @@ export type Observation = {
   soc_pct: number
   displayed_range_km: number
   odometer_km?: number
-  // Set on a CarPlay-triggered reading only; the position never without the event.
-  trigger_event?: TriggerEvent
+  // Set on a CarPlay-triggered or charge-triggered reading only; the position never without
+  // the event, and only with a CarPlay one.
+  trigger_event?: ReadingEvent
   latitude?: number
   longitude?: number
 }
@@ -72,10 +73,11 @@ export function parseReading(input: unknown): Reading {
 const isPosition = (latitude: number, longitude: number) =>
   latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
 
-// `event` is set only for a run a CarPlay connect or disconnect triggered: it tags the
-// reading, and only then does the reading carry the car's position. A position the Worker
-// would refuse (out of range) is dropped, so the reading and its tag still go through.
-export function toObservation(reading: Reading, now: Date, event?: TriggerEvent): Observation | null {
+// `event` is set only for a run something triggered: it tags the reading. Only a CarPlay
+// connect or disconnect also gives it the car's position (a charge run never reads one, atto/8).
+// A position the Worker would refuse (out of range) is dropped, so the reading and its tag
+// still go through.
+export function toObservation(reading: Reading, now: Date, event?: ReadingEvent): Observation | null {
   const { soc_pct, range_km, odometer_km } = reading
   if (soc_pct === null || range_km === null) return null
   const soc = Math.round(soc_pct)
@@ -91,7 +93,7 @@ export function toObservation(reading: Reading, now: Date, event?: TriggerEvent)
   if (event !== undefined) {
     observation.trigger_event = event
     const { latitude, longitude } = reading
-    if (latitude !== undefined && longitude !== undefined && isPosition(latitude, longitude)) {
+    if (isTriggerEvent(event) && latitude !== undefined && longitude !== undefined && isPosition(latitude, longitude)) {
       observation.latitude = latitude
       observation.longitude = longitude
     }

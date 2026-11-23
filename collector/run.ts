@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import type { TriggerEvent } from '../worker/trigger-events.ts'
+import { isChargeEvent, isTriggerEvent, type ChargeEvent, type ReadingEvent } from '../worker/trigger-events.ts'
 import { fileLastRun } from './last-run.ts'
 import { parseReading, toObservation, toVehicle, type Reading } from './map.ts'
 import { loadSecrets, type Exec } from './secrets.ts'
@@ -15,7 +15,8 @@ import { advance, emptyState, type SessionState } from './sessions.ts'
 const CHARGING = 1
 
 export type RunDeps = {
-  // `withLocation` is true only for a run a CarPlay connect or disconnect triggered (atto/6).
+  // `withLocation` is true only for a run a CarPlay connect or disconnect triggered (atto/6);
+  // a charge run (atto/8) never reads the position.
   readCar: (withLocation: boolean) => Promise<Reading>
   loadState: () => Promise<SessionState>
   saveState: (state: SessionState) => Promise<void>
@@ -26,14 +27,14 @@ export type RunDeps = {
 }
 
 export type RunOptions = {
-  // The event that triggered this run. Set, the reading is tagged with it and carries the
-  // car's position; unset (the timer), it carries neither.
-  event?: TriggerEvent
+  // The event that triggered this run. Set, the reading is tagged with it, and a CarPlay one
+  // also carries the car's position; unset (the timer), it carries neither.
+  event?: ReadingEvent
 }
 
 export async function runOnce(deps: RunDeps, options: RunOptions = {}): Promise<void> {
   const { event } = options
-  const reading = await deps.readCar(event !== undefined)
+  const reading = await deps.readCar(isTriggerEvent(event))
   const state = await deps.loadState()
 
   const observation = toObservation(reading, deps.now(), event)
@@ -65,7 +66,10 @@ export async function runOnce(deps: RunDeps, options: RunOptions = {}): Promise<
     `sent ${observation.soc_pct}% / ${observation.displayed_range_km} km, ` +
       (observation.odometer_km === undefined ? 'odometer unknown' : `odometer ${observation.odometer_km} km`) +
       // Whether a position was read, never the position itself.
-      (event === undefined ? '' : `, tagged ${event}, ${observation.latitude === undefined ? 'no position' : 'position read'}`) +
+      (event === undefined
+        ? ''
+        : `, tagged ${event}` +
+          (isTriggerEvent(event) ? `, ${observation.latitude === undefined ? 'no position' : 'position read'}` : '')) +
       (next.session ? `, and a ${next.session.energy_kwh} kWh charging session` : ''),
   )
 }
@@ -204,11 +208,24 @@ export async function createRunDeps(env: NodeJS.ProcessEnv): Promise<RunDeps> {
   }
 }
 
+// `--event charge_start|charge_stop` is how the push listener (atto/8) runs the collector once
+// for a charge event. A CarPlay event is not accepted: the trigger pick-up owns those, with
+// the Worker's queue and its acknowledgements.
+export function eventFromArguments(args: string[]): ChargeEvent | undefined {
+  if (args.length === 0) return undefined
+  const [flag, value, ...rest] = args
+  if (flag !== '--event' || !isChargeEvent(value) || rest.length > 0) {
+    throw new Error('usage: run.ts [--event charge_start|charge_stop]')
+  }
+  return value
+}
+
 async function main(): Promise<void> {
   const env = process.env
+  const event = eventFromArguments(process.argv.slice(2))
   const deps = await createRunDeps(env)
   try {
-    await runOnce(deps)
+    await runOnce(deps, event === undefined ? {} : { event })
   } finally {
     // Every attempt counts as a run for the trigger pick-up's two-minute spacing.
     await fileLastRun(join(stateDirectoryFor(env), LAST_RUN_FILE)).save(new Date())
