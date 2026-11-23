@@ -16,7 +16,7 @@ import {
 } from '../src/lib/data-model/validation'
 import type { D1Like } from './d1'
 import { json } from './json'
-import { TRIGGER_EVENTS } from './trigger-events'
+import { READING_EVENTS } from './trigger-events'
 
 const MAX_BODY_CHARACTERS = 16_384
 
@@ -103,7 +103,7 @@ export const ENTITIES = {
       outside_temp_c: { kind: 'number' },
       climate_on: { kind: 'boolean' },
       notes: { kind: 'text' },
-      trigger_event: { kind: 'enum', values: TRIGGER_EVENTS },
+      trigger_event: { kind: 'enum', values: READING_EVENTS },
       latitude: { kind: 'number' },
       longitude: { kind: 'number' },
     },

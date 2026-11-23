@@ -153,6 +153,14 @@ export function validateRangeObservation(
   if ((isPresent(input.latitude) || isPresent(input.longitude)) && !isPresent(input.trigger_event)) {
     errors.latitude ??= 'Only a triggered reading carries a position'
   }
+  // A charge run (atto/8) never reads the car's position, so one that arrives with it is refused.
+  if (
+    (isPresent(input.latitude) || isPresent(input.longitude)) &&
+    typeof input.trigger_event === 'string' &&
+    input.trigger_event.startsWith('charge_')
+  ) {
+    errors.latitude ??= 'A charge reading carries no position'
+  }
   return errors
 }
 

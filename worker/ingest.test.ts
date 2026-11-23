@@ -316,6 +316,14 @@ describe('the tag and the position a triggered reading carries (atto/6)', () => 
     expect(rows('range_observations')).toMatchObject([{ trigger_event: 'carplay_disconnect', latitude: null, longitude: null }])
   })
 
+  // atto/8: a charge run tags its reading and never carries a position.
+  it.each(['charge_start', 'charge_stop'])('stores a reading tagged %s, with no position', async (event) => {
+    expect((await ingest(body({ observation: { ...reading, trigger_event: event } }))).status).toBe(201)
+    expect(rows('range_observations')).toMatchObject([
+      { user_id: ownerSubject, trigger_event: event, latitude: null, longitude: null },
+    ])
+  })
+
   it('leaves a timer reading untagged and without a position', async () => {
     await ingest(body())
     expect(rows('range_observations')).toMatchObject([{ trigger_event: null, latitude: null, longitude: null }])
@@ -323,7 +331,7 @@ describe('the tag and the position a triggered reading carries (atto/6)', () => 
 
   it.each([
     ['an unknown event', { ...triggered, trigger_event: 'ignition_on' }],
-    ['a charge event before atto/8 adds it', { ...triggered, trigger_event: 'charge_start' }],
+    ['a charge event with a position (a charge run never reads one)', { ...triggered, trigger_event: 'charge_start' }],
     ['a position with no event', { ...reading, latitude: 0, longitude: 0 }],
     ['a latitude with no longitude', { ...reading, trigger_event: 'carplay_connect', latitude: 0 }],
     ['a latitude above 90', { ...triggered, latitude: 91 }],

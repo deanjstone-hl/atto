@@ -115,7 +115,8 @@ describe('POST /api/collect/trigger', () => {
   it.each([
     ['no event', {}],
     ['an unknown event', { event: 'ignition_on' }],
-    ['a charge event, reserved for atto/8 and not accepted yet', { event: 'charge_start' }],
+    ['a charge event: the car starts those, the phone never files them (atto/8)', { event: 'charge_start' }],
+    ['a charge stop, for the same reason', { event: 'charge_stop' }],
     ['a non-string event', { event: 7 }],
     ['an extra field', { event: 'carplay_connect', requested_at: '2020-01-01T00:00:00Z' }],
     ['a user_id', { event: 'carplay_connect', user_id: 'someone' }],
