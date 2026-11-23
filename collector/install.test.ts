@@ -228,3 +228,42 @@ describe('the trigger pick-up units (atto/6)', () => {
     expect(live(timer)).toMatch(/^Persistent=false$/m)
   })
 })
+
+describe('the push listener unit (atto/8)', () => {
+  const service = readFileSync(join(root, 'collector/systemd/atto1-collector-push.service'), 'utf8')
+  const live = (text: string) => text.split('\n').filter((line) => !line.trim().startsWith('#')).join('\n')
+
+  it('runs collector/push.ts and nothing else, from the deploy copy', () => {
+    expect(live(service)).toMatch(/WorkingDirectory=%h\/repos\/atto1?$/m)
+    expect(live(service)).toMatch(/collector\/push\.ts/)
+    expect(live(service)).not.toMatch(/collector\/(run|trigger)\.ts/)
+  })
+
+  it('exports the Secrets Manager access token, as the other units do', () => {
+    expect(runExecStart(service, '[ "${BWS_ACCESS_TOKEN:-}" = stub ]').status).toBe(0)
+  })
+
+  // The listener lives for hours: holding the collector lock for that long would starve the
+  // timer and the pick-up. It takes the lock per run, inside push.ts.
+  it('does not hold the collector lock while it listens', () => {
+    expect(live(service)).not.toMatch(/flock/)
+  })
+
+  it('stays up, restarts slowly and stops restarting a refused login', () => {
+    expect(live(service)).toMatch(/^Type=simple$/m)
+    expect(live(service)).toMatch(/^Restart=always$/m)
+    expect(Number(live(service).match(/^RestartSec=(\d+)/m)?.[1])).toBeGreaterThanOrEqual(300)
+    expect(live(service)).toMatch(/^StartLimitBurst=\d+$/m)
+    expect(live(service)).toMatch(/^StartLimitIntervalSec=\d+$/m)
+  })
+
+  it('renews its sign-in with a restart at least daily', () => {
+    expect(Number(live(service).match(/^RuntimeMaxSec=(\d+)/m)?.[1])).toBeLessThanOrEqual(86_400)
+  })
+
+  it('shares the collector state directory and PATH, and carries no secret', () => {
+    expect(live(service)).toMatch(/^StateDirectory=atto1-collector$/m)
+    expect(live(service)).toMatch(/^Environment=PATH=%h\/\.local\/bin:/m)
+    expect(live(service)).not.toMatch(/PASSWORD|SECRET=|CLIENT_ID=|BYD_USERNAME/)
+  })
+})

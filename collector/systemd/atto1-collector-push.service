@@ -1,0 +1,34 @@
+# The BYD push listener (atto/8): holds one BYD push connection open, and runs the collector
+# once when the car starts or stops charging, so a charging session has a reading at both ends.
+# collector/push.ts supervises collector/listen-byd.py. Installed by scripts/owner-steps/8.sh,
+# from a checkout of `deploy`.
+[Unit]
+Description=atto1 BYD push listener (runs the BYD collector once when the car starts or stops charging)
+After=network-online.target
+Wants=network-online.target
+# A login BYD keeps refusing is not retried for ever: after five starts in an hour it stays down
+# until `systemctl --user reset-failed atto1-collector-push.service` (docs/byd-collector.md).
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/atto
+# As atto1-collector.service: the Bitwarden Secrets Manager access token, `set -a` so node and
+# bws see it, and ~/.local/bin on the PATH so secrets.ts finds `bws`.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# No flock here: the listener runs for hours and must not hold the collector lock. push.ts takes
+# the same lock (atto1-collector.lock) around each collector run it starts.
+ExecStart=/bin/bash -c 'set -a && . "$HOME/.bws_token" && set +a && exec "$HOME/.local/share/fnm/aliases/default/bin/node" collector/push.ts'
+# The reader's interpreter and the battery capacity come from the drop-in the installer copies
+# from atto1-collector.service.d (atto1-collector-push.service.d/collector.conf).
+StateDirectory=atto1-collector
+# BYD pushes need a live sign-in: a restart at least daily makes a fresh one, and the listener
+# renews it on its own in between.
+RuntimeMaxSec=43200
+# Slowly: a refused login (3008) must not be retried in a loop.
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=default.target
