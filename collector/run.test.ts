@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { Reading } from './map.ts'
-import { fileStateStore, postIngest, runOnce, type RunDeps } from './run.ts'
+import { explainReadFailure, fileStateStore, postIngest, runOnce, type RunDeps } from './run.ts'
 import { emptyState, type SessionState } from './sessions.ts'
 
 const reading = (overrides: Partial<Reading> = {}): Reading => ({
@@ -218,5 +218,52 @@ describe('fileStateStore', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'atto1-collector-')), 'state.json')
     await fileStateStore(path).save({ lastAt: '2026-11-07T01:00:00.000Z', open: null })
     expect(readFileSync(path, 'utf8')).not.toMatch(/vin|lat|lon|password|secret/i)
+  })
+})
+
+describe('explainReadFailure', () => {
+  const secrets = { username: 'owner@example.test', password: 'hunter2-example' }
+
+  it('names the kill signal and the reader stderr, which the bare "Command failed" line dropped', () => {
+    const error = Object.assign(new Error('Command failed: python read-byd.py --with-location'), {
+      killed: true,
+      signal: 'SIGTERM',
+      code: null,
+      stderr: 'GPS read failed: TimeoutError\n',
+    })
+    const message = explainReadFailure(error, secrets).message
+    expect(message).toContain('Command failed')
+    expect(message).toContain('killed by SIGTERM')
+    expect(message).toContain('GPS read failed: TimeoutError')
+  })
+
+  it('names the exit code when the reader exited by itself', () => {
+    const error = Object.assign(new Error('Command failed: python read-byd.py'), {
+      killed: false,
+      signal: null,
+      code: 1,
+      stderr: 'BYD login failed: code=3002',
+    })
+    const message = explainReadFailure(error, secrets).message
+    expect(message).toContain('exit code 1')
+    expect(message).toContain('BYD login failed: code=3002')
+  })
+
+  it('keeps the credentials and a VIN out of the message and bounds its length', () => {
+    const error = Object.assign(new Error('Command failed'), {
+      code: 1,
+      stderr: `login ${secrets.username} ${secrets.password} LC0CE4CB5S0123456 ${'x'.repeat(5000)}`,
+    })
+    const message = explainReadFailure(error, secrets).message
+    expect(message).not.toContain(secrets.username)
+    expect(message).not.toContain(secrets.password)
+    expect(message).not.toContain('LC0CE4CB5S0123456')
+    expect(message.length).toBeLessThan(1500)
+  })
+
+  it('passes something that is not an exec failure through unchanged', () => {
+    const error = new Error('boom')
+    expect(explainReadFailure(error, secrets)).toBe(error)
+    expect(explainReadFailure('text', secrets).message).toBe('text')
   })
 })

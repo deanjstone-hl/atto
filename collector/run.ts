@@ -123,6 +123,34 @@ export function fileStateStore(path: string) {
 const run = promisify(execFile)
 export const exec: Exec = async (file, args) => (await run(file, args, { maxBuffer: 1024 * 1024 })).stdout
 
+const STDERR_LIMIT = 600
+const VIN_PATTERN = /\b[A-HJ-NPR-Z0-9]{17}\b/g
+
+// An execFile failure says only `Command failed: <command line>`; the reader's stderr and
+// the signal that killed it are fields on the error. Put them in the message so the journal
+// shows why a run failed (atto/16), minus the credentials and any VIN, and bounded.
+export function explainReadFailure(error: unknown, secrets: { username: string; password: string }): Error {
+  if (!(error instanceof Error)) return new Error(String(error))
+  const { killed, signal, code, stderr } = error as Error & {
+    killed?: boolean
+    signal?: string | null
+    code?: number | string | null
+    stderr?: unknown
+  }
+  if (killed === undefined && signal === undefined && code === undefined && stderr === undefined) return error
+
+  const ended = signal ? `${killed ? 'killed' : 'stopped'} by ${signal}` : code != null ? `exit code ${code}` : 'ended'
+  let text = typeof stderr === 'string' ? stderr.trim() : ''
+  for (const secret of [secrets.username, secrets.password]) {
+    if (secret) text = text.split(secret).join('[redacted]')
+  }
+  text = text.replace(VIN_PATTERN, '[vin]')
+  if (text.length > STDERR_LIMIT) text = `...${text.slice(-STDERR_LIMIT)}`
+  return new Error(`${error.message} (${ended})${text ? `; reader stderr: ${text}` : '; the reader printed nothing to stderr'}`, {
+    cause: error,
+  })
+}
+
 async function readCar(
   env: NodeJS.ProcessEnv,
   username: string,
@@ -131,11 +159,15 @@ async function readCar(
 ): Promise<Reading> {
   const python = env.ATTO1_PYTHON ?? 'python3'
   const args = [join(import.meta.dirname, 'read-byd.py'), ...(withLocation ? ['--with-location'] : [])]
-  const { stdout } = await run(python, args, {
-    env: { ...env, BYD_USERNAME: username, BYD_PASSWORD: password },
-    timeout: 120_000,
-  })
-  return parseReading(JSON.parse(stdout))
+  try {
+    const { stdout } = await run(python, args, {
+      env: { ...env, BYD_USERNAME: username, BYD_PASSWORD: password },
+      timeout: 120_000,
+    })
+    return parseReading(JSON.parse(stdout))
+  } catch (error) {
+    throw explainReadFailure(error, { username, password })
+  }
 }
 
 export const stateDirectoryFor = (env: NodeJS.ProcessEnv): string =>
