@@ -107,9 +107,12 @@ card on the dashboard then shows the trip in progress; it completes when the dis
 
 - One `collect_triggers` row per request, one `collect_acks` row when the homelab has handled
   it, a tagged reading with its position (migration `0002`). Nothing is updated or deleted.
-- Triggers filed within two minutes of each other, or of the last run (either timer), are
-  covered by one run, tagged with the newest event. The pick-up waits instead of reading the car
-  more often. A trigger older than 30 minutes is dropped from the list.
+- Each event gets its own run, oldest first, tagged with that event: a connect and a disconnect
+  filed together are two runs, so the trip's connect reading survives. Repeats of the same event
+  at the head of the queue share one run. No run starts within two minutes of the end of the
+  last (either timer), so the next event waits for a later tick. A run that fails leaves its
+  triggers pending and is tried again, up to three runs per trigger, then dropped. A trigger
+  older than 30 minutes is dropped from the list.
 - The 30-minute timer's readings carry no tag and no position, as before.
 
 ## Troubleshooting

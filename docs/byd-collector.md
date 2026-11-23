@@ -36,22 +36,28 @@ The same run also happens when the iPhone connects to or leaves CarPlay
 /api/collect/trigger` with its own Access service token (`atto1-carplay-phone`); a second timer,
 `atto1-collector-trigger.timer`, asks `GET /api/collect/pending` every minute with the
 collector's token and runs `collector/trigger.ts`. When something is pending, that runs
-`collector/run.ts`'s run once with the newest event:
+`collector/run.ts`'s run once with the oldest pending event:
 
 - the reader is started with `--with-location`, which makes the one GPS call
   (`get_gps_info`) and prints `latitude` and `longitude` beside the usual eight fields (a failed
   GPS read prints `null` for both and still prints the reading);
 - the reading is posted with `trigger_event` (`carplay_connect` or `carplay_disconnect`) and the
   position, which the Worker stores only on a tagged reading;
-- the triggers it covered are acknowledged (`POST /api/collect/ack`).
+- the triggers it covered are acknowledged (`POST /api/collect/ack`) once the run worked.
 
-The 30-minute timer never asks for the position and never tags. Every pending trigger is
-covered by one run, no run starts within two minutes of the last one (`last-run.json` in the
-state directory records it for both timers), and both units hold one `flock` on
+The 30-minute timer never asks for the position and never tags. A connect and a disconnect
+are never folded into one run (a trip is paired from the connect reading): each event gets its
+own run, oldest first, and repeats of the same event at the head of the queue share one. No run
+starts within two minutes of the end of the last one (`last-run.json` in the state directory
+records it for both timers), so the next event is picked up on a later tick. Both units hold one `flock` on
 `$XDG_RUNTIME_DIR/atto1-collector.lock`, so two runs never read the car or write `state.json`
 together. The run logs whether a position was read (`position read` or `no position`), never its
-value. A failed run still acknowledges its triggers, so a broken login is tried once per trigger,
-not once a minute. `scripts/owner-steps/6.sh` installs the trigger units; the full order of owner
+value. A failed run leaves its triggers pending and counts the attempt (`trigger-attempts.json`
+in the state directory), so a later tick tries again; after three failed runs the trigger is
+acknowledged, so a broken login is tried three times, not once a minute until the Worker stops
+listing it. A failure's journal line names how the reader ended (exit code or kill signal, for
+example `killed by SIGTERM` at the 120 s timeout) and its stderr, with credentials and any VIN
+removed. `scripts/owner-steps/6.sh` installs the trigger units; the full order of owner
 steps is in [carplay-shortcut.md](carplay-shortcut.md).
 
 ## Secrets
@@ -176,5 +182,7 @@ A login with the second account does not sign the phone app out.
 | `the Worker answered 401` / `403` | `INGEST_*` are not set in the deployed Worker / the token is not the named one. |
 | `atto1-collector-trigger: ... waiting` | A trigger is pending but the last run was under two minutes ago (either timer); it is picked up on a later tick. |
 | `atto1-collector-trigger: the Worker answered 302 / 401 / 403 to the pending list` | The collector's token is not admitted (302), the Worker has no `INGEST_*` (401), or the token is not the collector's (403). Same causes as the ingest row above. |
+| `atto1-collector-trigger: Command failed: ... (killed by SIGTERM)` | The reader ran past its 120 s timeout. The triggers stay pending and are retried (up to three runs each). The reader's stderr follows in the same line; the cause on the BYD side may be a slow position read while the car is moving. |
+| `atto1-collector-trigger: giving up on N trigger(s) after 3 failed runs` | Three runs in a row failed for those triggers; they are acknowledged and no reading was recorded for them. Read the lines above for the cause. |
 | `no position` after `tagged carplay_...` | The GPS read failed or the car was asleep; the tagged reading was stored without a position. |
 | `the state file ... is not valid JSON` | Delete `~/.local/state/atto1-collector/state.json`; the next poll starts fresh (an open charge is lost). |

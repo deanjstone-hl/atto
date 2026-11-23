@@ -152,12 +152,15 @@ AEDT). The position amends this ADR, which kept location inside the collector.
   `GET /api/collect/pending` every minute with the collector's token and, when a trigger is
   pending, runs the collector once and posts an acknowledgement (`POST /api/collect/ack`).
   Triggers, acknowledgements and readings are all inserted, never updated (migration `0002`).
-- **Debounce.** Every trigger pending at once is covered by one run, tagged with the newest
-  event, and no run starts within two minutes of the last one from either timer, so the extra
+- **Debounce.** Each event gets its own run, oldest first, tagged with that event (atto/16: the
+  first version folded everything pending into one run tagged with the newest event, which lost
+  a drive's connect), and no run starts within two minutes of the end of the last one from either timer, so the extra
   polls this adds are bounded: at most one per two minutes, and only when the phone asks. A
   trigger older than 30 minutes is no longer offered, so a reading is never tagged with an event
-  from long before it. A run that fails still acknowledges its triggers, so a broken login is
-  tried once per trigger and not once a minute.
+  from long before it. A run that fails leaves its triggers pending and counts the attempt
+  (atto/16; the first version acknowledged a failed run's triggers, which lost a drive's connect
+  when the read timed out), and after three failed runs a trigger is acknowledged, so a broken
+  login is tried three times and not once a minute.
 - **Tag.** `range_observations.trigger_event` holds `carplay_connect` or `carplay_disconnect`;
   a timer reading has none. The Worker owns the event list (`worker/trigger-events.ts`) and the
   database checks only the shape of the name, so atto/8 can add `charge_start` and `charge_stop`

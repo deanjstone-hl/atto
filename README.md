@@ -112,7 +112,7 @@ its own Access service token; a second homelab timer (`atto1-collector-trigger.t
 minute) picks it up, runs the collector once, tags that reading `carplay_connect` or
 `carplay_disconnect` and adds the car's position to it (only a triggered reading carries one).
 The dashboard's Trips card pairs each connect with the next disconnect. Triggers are debounced:
-one run covers everything pending, and no run starts within two minutes of the last. Setup,
+each event gets its own run, in order (a connect is never folded into a disconnect), and no run starts within two minutes of the end of the last. A failed run leaves its triggers pending for up to three tries. Setup,
 in order, and the Shortcut's exact settings: [docs/carplay-shortcut.md](docs/carplay-shortcut.md);
 the position amendment: [ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md).
 `bash scripts/owner-steps/7.sh --dry-run` previews the pre-promotion owner step (the Access policy for the phone's token and the `ATTO_TRIGGER_CLIENT_ID` secret); `bash scripts/owner-steps/6.sh --dry-run` previews the homelab install.
