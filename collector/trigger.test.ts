@@ -1,8 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ackTriggers, COALESCE_MS, fetchPending, pickUp, type PickUpDeps, type PendingTrigger } from './trigger.ts'
+import {
+  ackTriggers,
+  COALESCE_MS,
+  fetchPending,
+  MAX_ATTEMPTS,
+  pickUp,
+  type PickUpDeps,
+  type PendingTrigger,
+} from './trigger.ts'
 
 // The homelab pick-up (atto/6): every minute, ask the Worker what is pending; when something
-// is, run the collector once for the newest event and acknowledge what that run covered.
+// is, run the collector once for the oldest pending event and acknowledge what that run covered.
+// A connect and a disconnect are never folded into one run, and a failed run leaves its
+// triggers pending for a bounded retry (atto/16).
 
 const NOW = new Date('2026-11-21T10:00:00.000Z')
 const minutesBefore = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000)
@@ -15,6 +25,7 @@ const trigger = (id: string, event: string, minutesAgo: number): PendingTrigger 
 
 function setup(pending: PendingTrigger[], lastRun: Date | null = null, overrides: Partial<PickUpDeps> = {}) {
   const calls: string[] = []
+  let attempts: Record<string, number> = {}
   const deps: PickUpDeps = {
     fetchPending: async () => pending,
     ack: async (ids) => {
@@ -27,11 +38,15 @@ function setup(pending: PendingTrigger[], lastRun: Date | null = null, overrides
     saveLastRun: async (at) => {
       calls.push(`saved ${at.toISOString()}`)
     },
+    loadAttempts: async () => attempts,
+    saveAttempts: async (next) => {
+      attempts = next
+    },
     now: () => NOW,
     log: () => undefined,
     ...overrides,
   }
-  return { deps, calls }
+  return { deps, calls, attemptsNow: () => attempts }
 }
 
 describe('pickUp', () => {
@@ -47,17 +62,43 @@ describe('pickUp', () => {
     expect(calls).toEqual(['run carplay_connect', `saved ${NOW.toISOString()}`, 'ack t1'])
   })
 
-  it('coalesces triggers filed close together into one run, tagged with the newest event', async () => {
+  it('never folds a connect and a disconnect into one run: the oldest event runs first, the other stays pending', async () => {
     const { deps, calls } = setup([trigger('t1', 'carplay_connect', 1.5), trigger('t2', 'carplay_disconnect', 0.5)])
+    expect(await pickUp(deps)).toBe('ran')
+    expect(calls.filter((call) => call.startsWith('run'))).toEqual(['run carplay_connect'])
+    expect(calls).toContain('ack t1')
+    expect(calls.some((call) => call.includes('t2'))).toBe(false)
+  })
+
+  it('runs for the oldest event by request time, whatever order the list came in', async () => {
+    const { deps, calls } = setup([trigger('t2', 'carplay_disconnect', 0.5), trigger('t1', 'carplay_connect', 1.5)])
     await pickUp(deps)
-    expect(calls.filter((call) => call.startsWith('run'))).toEqual(['run carplay_disconnect'])
+    expect(calls).toContain('run carplay_connect')
+    expect(calls).not.toContain('run carplay_disconnect')
+  })
+
+  it('covers repeats of the same event with one run', async () => {
+    const { deps, calls } = setup([
+      trigger('t1', 'carplay_connect', 1.5),
+      trigger('t2', 'carplay_connect', 1),
+      trigger('t3', 'carplay_disconnect', 0.5),
+    ])
+    await pickUp(deps)
+    expect(calls.filter((call) => call.startsWith('run'))).toEqual(['run carplay_connect'])
     expect(calls).toContain('ack t1,t2')
   })
 
-  it('takes the newest event by request time, whatever order the list came in', async () => {
-    const { deps, calls } = setup([trigger('t2', 'carplay_disconnect', 0.5), trigger('t1', 'carplay_connect', 1.5)])
-    await pickUp(deps)
-    expect(calls).toContain('run carplay_disconnect')
+  it('records the next event on a later tick, once the two-minute spacing has passed', async () => {
+    const pending = [trigger('t1', 'carplay_connect', 5), trigger('t2', 'carplay_disconnect', 4.5)]
+    const first = setup(pending)
+    await pickUp(first.deps)
+    expect(first.calls).toContain('run carplay_connect')
+
+    const second = setup(pending.slice(1), NOW)
+    expect(await pickUp(second.deps)).toBe('waiting')
+    const third = setup(pending.slice(1), minutesBefore(2))
+    expect(await pickUp(third.deps)).toBe('ran')
+    expect(third.calls).toEqual(['run carplay_disconnect', `saved ${NOW.toISOString()}`, 'ack t2'])
   })
 
   it('waits, leaving the trigger pending, when the last run was under two minutes ago', async () => {
@@ -91,9 +132,9 @@ describe('pickUp', () => {
     expect(calls).toEqual([])
   })
 
-  it('still acknowledges, and records the attempt, when the run fails, then reports the failure', async () => {
+  it('leaves the trigger pending when the run fails, records the attempt, then reports the failure', async () => {
     const calls: string[] = []
-    const { deps } = setup([trigger('t1', 'carplay_connect', 1)], null, {
+    const { deps, attemptsNow } = setup([trigger('t1', 'carplay_connect', 1)], null, {
       run: async () => {
         throw new Error('BYD login failed')
       },
@@ -105,7 +146,96 @@ describe('pickUp', () => {
       },
     })
     await expect(pickUp(deps)).rejects.toThrow('BYD login failed')
-    expect(calls).toEqual(['saved', 'ack t1'])
+    expect(calls).toEqual(['saved'])
+    expect(attemptsNow()).toEqual({ t1: 1 })
+  })
+
+  it('retries a failed trigger on a later tick and acknowledges it once the run works', async () => {
+    const pending = [trigger('t1', 'carplay_connect', 5)]
+    let failing = true
+    const first = setup(pending, null, {
+      run: async () => {
+        if (failing) throw new Error('timed out')
+      },
+    })
+    await expect(pickUp(first.deps)).rejects.toThrow('timed out')
+    expect(first.calls).toEqual([`saved ${NOW.toISOString()}`])
+
+    failing = false
+    const retry = setup(pending, minutesBefore(2), {
+      loadAttempts: first.deps.loadAttempts,
+      saveAttempts: first.deps.saveAttempts,
+    })
+    expect(await pickUp(retry.deps)).toBe('ran')
+    expect(retry.calls).toEqual(['run carplay_connect', `saved ${NOW.toISOString()}`, 'ack t1'])
+    expect(first.attemptsNow()).toEqual({})
+  })
+
+  it('the 17:19 drive: the connect times out, a disconnect follows, and the connect is still recorded later', async () => {
+    const pending = [trigger('t1', 'carplay_connect', 3), trigger('t2', 'carplay_disconnect', 2.9)]
+    const ran: string[] = []
+    const acked: string[] = []
+    let failFirst = true
+    const shared = setup(pending, null)
+    const deps: PickUpDeps = {
+      ...shared.deps,
+      run: async (event) => {
+        ran.push(event)
+        if (failFirst) {
+          failFirst = false
+          throw new Error('timed out')
+        }
+      },
+      ack: async (ids) => {
+        acked.push(...ids)
+      },
+    }
+    await expect(pickUp(deps)).rejects.toThrow('timed out')
+    expect(acked).toEqual([])
+    await pickUp({ ...deps, loadLastRun: async () => minutesBefore(2) })
+    await pickUp({ ...deps, loadLastRun: async () => minutesBefore(2), fetchPending: async () => pending.slice(1) })
+    expect(ran).toEqual(['carplay_connect', 'carplay_connect', 'carplay_disconnect'])
+    expect(acked).toEqual(['t1', 't2'])
+  })
+
+  it('gives up on a trigger after its last attempt: it is acknowledged, not retried for ever', async () => {
+    expect(MAX_ATTEMPTS).toBe(3)
+    const { deps, calls, attemptsNow } = setup([trigger('t1', 'carplay_connect', 1)], null, {
+      run: async () => {
+        throw new Error('BYD login failed')
+      },
+      loadAttempts: async () => ({ t1: MAX_ATTEMPTS - 1 }),
+    })
+    await expect(pickUp(deps)).rejects.toThrow('BYD login failed')
+    expect(calls).toContain('ack t1')
+    expect(attemptsNow()).toEqual({})
+  })
+
+  it('forgets the attempts of triggers that are no longer pending', async () => {
+    const { deps, attemptsNow } = setup([trigger('t2', 'carplay_connect', 1)], null, {
+      run: async () => {
+        throw new Error('x')
+      },
+      loadAttempts: async () => ({ t1: 2 }),
+    })
+    await expect(pickUp(deps)).rejects.toThrow('x')
+    expect(attemptsNow()).toEqual({ t2: 1 })
+  })
+
+  it('measures the two-minute spacing from the end of a run, so a slow failed run is not retried at once', async () => {
+    const times = [NOW, new Date(NOW.getTime() + 2 * 60_000)]
+    const saved: string[] = []
+    const { deps } = setup([trigger('t1', 'carplay_connect', 1)], null, {
+      now: () => times.shift() ?? NOW,
+      run: async () => {
+        throw new Error('timed out')
+      },
+      saveLastRun: async (at) => {
+        saved.push(at.toISOString())
+      },
+    })
+    await expect(pickUp(deps)).rejects.toThrow('timed out')
+    expect(saved).toEqual([new Date(NOW.getTime() + 2 * 60_000).toISOString()])
   })
 
   it('does not hide a failed acknowledgement: the trigger stays pending and is retried', async () => {
