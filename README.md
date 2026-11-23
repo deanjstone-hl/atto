@@ -117,6 +117,15 @@ in order, and the Shortcut's exact settings: [docs/carplay-shortcut.md](docs/car
 the position amendment: [ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md).
 `bash scripts/owner-steps/7.sh --dry-run` previews the pre-promotion owner step (the Access policy for the phone's token and the `ATTO_TRIGGER_CLIENT_ID` secret); `bash scripts/owner-steps/6.sh --dry-run` previews the homelab install.
 
+### Charge start and stop
+
+A long-running homelab unit (`atto1-collector-push.service`) listens on BYD's push channel, read-only,
+and runs the collector once when the car starts or stops charging, tagging that reading
+`charge_start` or `charge_stop` (no position), so a charging session has a reading at both ends.
+The same two-minute debounce and bounded retry apply; the 30-minute timer still runs. Runbook:
+[docs/byd-collector.md](docs/byd-collector.md); the decision: [ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md),
+Amendment 2. `bash scripts/owner-steps/8.sh --dry-run` previews the homelab install.
+
 ## Scripts
 
 | Command | What it does |
@@ -129,6 +138,7 @@ the position amendment: [ADR-006](docs/decisions/adr-006-read-only-byd-import-vi
 | `pnpm test` | Vitest: unit tests, plus migration and Worker tests against in-process SQLite |
 | `pnpm run preview` | Serve the production build |
 | `node collector/run.ts` | One collector run: reads the car, posts to the Worker. Owner-enabled; see above |
+| `node collector/push.ts` | The charge listener (atto/8): supervises `collector/listen-byd.py` and runs the collector once when the car starts or stops charging. Kept up by `atto1-collector-push.service` |
 | `node collector/trigger.ts` | The CarPlay pick-up: asks the Worker for pending triggers and, if there are any, runs the collector once for the newest. Run every minute by `atto1-collector-trigger.timer` |
 | `pnpm run db:migrate` | Render `wrangler.deploy.jsonc` from BWS, then apply D1 migrations to the remote database: owner only, from a checkout of `deploy` |
 | `pnpm run deploy` | Build, render `wrangler.deploy.jsonc` from BWS and deploy the Worker: owner only, from a checkout of `deploy` |

@@ -3,7 +3,7 @@ title: ADR-006 — Read-only BYD import through a second account
 status: accepted
 date: 2026-11-07
 context: atto1/77 (owner decision, 7 Nov 2026 12:40 AEDT, in Aquila); account set up in atto1/76
-summary: "ADR-006: atto1 reads the ATTO 1's state from the BYD cloud with pybyd through a dedicated second account, read-only, from a homelab timer that posts to the Worker as one named Access service token; supersedes the no-import position. Amendment 1 (atto/6): a CarPlay connect or disconnect also triggers a run, tags its reading and reads the car's position for that reading only"
+summary: "ADR-006: atto1 reads the ATTO 1's state from the BYD cloud with pybyd through a dedicated second account, read-only, from a homelab timer that posts to the Worker as one named Access service token; supersedes the no-import position. Amendment 1 (atto/6): a CarPlay connect or disconnect also triggers a run, tags its reading and reads the car's position for that reading only. Amendment 2 (atto/8): a read-only listener on BYD's push channel runs the collector when a charge starts or stops, and tags that reading"
 read_when:
   - changing or running the BYD collector (collector/)
   - touching the ingest endpoint or the service-token path in worker/access.ts
@@ -37,7 +37,7 @@ account, so a login with the second account does not sign the phone app out
 - **Client: pybyd, read-only.** `collector/read-byd.py` calls `get_vehicles` and
   `get_vehicle_realtime` and nothing else. It never calls a command method (`RemoteCommand`,
   lock, unlock, climate, charging, windows, lights), never sets or uses a control PIN, never
-  keeps MQTT push off, and calls the GPS endpoint only with `--with-location`, which only a
+  turns MQTT push on (the push listener of [Amendment 2](#amendment-2-charge-start-and-stop-from-the-byd-push-channel-atto8) is a separate script), and calls the GPS endpoint only with `--with-location`, which only a
   CarPlay-triggered run passes ([Amendment 1](#amendment-1-carplay-triggers-and-the-position-atto6)).
   `collector/read-byd.test.ts` fails if the source names any of them, and pins the GPS call to
   that one branch. pybyd is pinned (`pybyd==0.0.80`: the first release that declares a guest account, which BYD requires of a shared car's account since 12 Nov 2026, [atto/3](https://github.com/deanjstone/atto/issues/3); the pin never goes below it).
@@ -164,7 +164,7 @@ AEDT). The position amends this ADR, which kept location inside the collector.
 - **Tag.** `range_observations.trigger_event` holds `carplay_connect` or `carplay_disconnect`;
   a timer reading has none. The Worker owns the event list (`worker/trigger-events.ts`) and the
   database checks only the shape of the name, so atto/8 can add `charge_start` and `charge_stop`
-  without rebuilding the table. They are reserved and refused until then.
+  without rebuilding the table. [Amendment 2](#amendment-2-charge-start-and-stop-from-the-byd-push-channel-atto8) adds them.
 - **Position.** `range_observations.latitude` and `longitude`, only on a tagged reading and
   both or neither (a database CHECK says so, and so does `validateRangeObservation`). The reader
   calls pybyd's `get_gps_info` only when run with `--with-location`, which only a triggered run
@@ -186,3 +186,46 @@ AEDT). The position amends this ADR, which kept location inside the collector.
   and bounded by the debounce, so the worst a leaked phone token does is cause a collector run
   every two minutes. Rotating it is an owner step in
   [atto/7](https://github.com/deanjstone/atto/issues/7).
+
+## Amendment 2: charge start and stop from the BYD push channel (atto/8)
+
+Owner decision, 24 Nov 2026 06:27 AEDT, asked which route the issue should take: "BYD push
+listener, if pybyd doesn't have one we will vendor one." Adaptive polling and a charger
+integration were not chosen.
+
+- **pybyd already has the push client**, so nothing is vendored. Since 0.0.80 `BydClient` opens
+  BYD's MQTT push connection after a sign-in when `mqtt_enabled` is true and hands every decrypted
+  push to an `on_mqtt_event(event, vin, payload)` callback. 0.0.90 (22 Nov 2026) adds typed
+  handling of partial `vehicleStatusPush` messages, but the callback is the same on every version
+  and the listener uses only it, so this needs no pin change.
+- **A second script, not a change to the reader.** `collector/listen-byd.py` signs in as the
+  second account, picks the car, and prints `{"charging": true|false}` each time a push for that
+  car carries a charge state (`chargeState` or `chargingState`, 1 meaning charging). It calls
+  `get_vehicles` and `ensure_session` only (the second renews the sign-in, which restarts pybyd's
+  push connection with fresh credentials) and prints nothing else from a push: no VIN, position,
+  door or tyre field. `collector/listen-byd.test.ts` pins both facts as `read-byd.test.ts` does for
+  the reader, and the reader still keeps MQTT off.
+- **From a change of state to a run.** `collector/push.ts`, run by `atto1-collector-push.service`,
+  supervises the listener. The first state it sees is a baseline; a change to charging is
+  `charge_start` and a change away from it is `charge_stop`. Each event runs
+  `collector/run.ts --event <event>` once, under the same `flock` the timer and the CarPlay
+  pick-up hold, so a run reads the car and writes `state.json` alone. The reading is tagged with
+  the event.
+- **Debounce and retry, as for CarPlay.** No run starts within two minutes of the end of the last
+  one from any trigger; an event inside the window waits, in order, one run per event; a failed
+  run is tried again, up to three runs, then given up on in the journal. The 30-minute timer is
+  unchanged and still brackets a session if a push is missed.
+- **Tag and position.** The Worker accepts `charge_start` and `charge_stop` on a reading
+  (`READING_EVENTS` in `worker/trigger-events.ts`) but not as a phone trigger, which stays
+  CarPlay-only. A charge run never asks for the position, and the Worker refuses one on a charge
+  reading. Sessions need no new logic: the run at each end is a poll that sees the charge start or
+  stop, so `collector/sessions.ts` takes its bounds from those polls.
+- **Consequences.** The listener holds a sign-in as the second account for as long as it runs,
+  where the reader signs in for a few seconds every 30 minutes; the grant is unchanged and the
+  push channel is read-only. A login by the 30-minute reader may end the listener's push
+  connection (pybyd re-signs in after repeated refusals, and the unit restarts the listener if it
+  dies); this is not tested live here, so the first real charge is the check
+  ([docs/byd-collector.md](../byd-collector.md)). The pushes' payload shape was read from
+  pybyd's source, not from a live capture. A start the push reports before the cloud's realtime
+  read agrees leaves the tagged reading showing "not charging" and the session unopened until the
+  next poll; the timer is the fallback.

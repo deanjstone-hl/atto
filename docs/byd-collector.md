@@ -1,5 +1,5 @@
 ---
-summary: "Runbook for the BYD collector (ADR-006): what it reads, the owner steps that turn it on (Access service token, Secrets Manager entries, timer), the first run, how the CarPlay trigger adds tagged readings with a position, and the audit that shows the grant the second BYD account holds"
+summary: "Runbook for the BYD collector (ADR-006): what it reads, the owner steps that turn it on (Access service token, Secrets Manager entries, timer), the first run, how the CarPlay trigger adds tagged readings with a position, how the push listener runs it when a charge starts or stops, and the audit that shows the grant the second BYD account holds"
 read_when:
   - "turning the BYD collector on, off or debugging a failed run"
   - "creating or rotating the atto1-ingest Access service token"
@@ -59,6 +59,43 @@ listing it. A failure's journal line names how the reader ended (exit code or ki
 example `killed by SIGTERM` at the 120 s timeout) and its stderr, with credentials and any VIN
 removed. `scripts/owner-steps/6.sh` installs the trigger units; the full order of owner
 steps is in [carplay-shortcut.md](carplay-shortcut.md).
+
+## Charge start and stop (atto/8)
+
+A third trigger runs the same collector when the car starts or stops charging, so a charging
+session has a reading at both ends instead of up to 30 minutes late. `atto1-collector-push.service`
+is a long-running unit (not a timer) that starts `collector/push.ts`, which supervises
+`collector/listen-byd.py`:
+
+- the listener signs in as the second account and holds BYD's push connection (pybyd's MQTT
+  client). It prints `{"charging": true|false}` whenever a push for the car carries a charge
+  state, and never anything else a push carries. It renews its sign-in every 10 minutes
+  (`ATTO1_PUSH_REFRESH_SECONDS`), and the unit restarts it every 12 hours;
+- `push.ts` takes the first state as a baseline, so a charge already under way when it starts is
+  left to the 30-minute timer. A change to charging is `charge_start`, a change away from it is
+  `charge_stop`. Each runs `collector/run.ts --event <event>` once under the shared
+  `atto1-collector.lock`, no sooner than two minutes after the last run from any trigger, oldest
+  first, and a failed run is tried up to three times;
+- the reading is tagged `charge_start` or `charge_stop`, and carries no position. Nothing needs to
+  be added to the session logic: the polls at each end are the session's start and end.
+
+`scripts/owner-steps/8.sh` installs the unit (after the promotion, since the Worker must accept
+the tags first). The listener does not retry a refused login in a loop: the unit waits five
+minutes between starts and stops after five in an hour. To start it again after fixing the cause:
+`systemctl --user reset-failed atto1-collector-push.service && systemctl --user start atto1-collector-push.service`.
+To turn it off: `systemctl --user disable --now atto1-collector-push.service`.
+
+Not verified live: whether a login by the 30-minute reader ends the listener's push connection.
+pybyd's source treats a connection taken over by another login as a refusal it recovers from by
+signing in again, so the worst case is a missed push, which the timer covers. Check on the first
+real charge:
+
+```bash
+journalctl --user -u atto1-collector-push.service --since "1 hour ago" --no-pager
+```
+
+Expect `charge_start push seen`, then `atto1-collector: sent ..., tagged charge_start` within a
+couple of minutes of plugging in, and the same for `charge_stop`.
 
 ## Secrets
 
@@ -180,6 +217,8 @@ A login with the second account does not sign the phone app out.
 | `the car sent no charge or range` | The car is offline or asleep; the run sends nothing and tries again in 30 minutes. |
 | `the Worker answered 302` | Access redirected the request: the service token is wrong, expired, or not in the `ingest` policy. |
 | `the Worker answered 401` / `403` | `INGEST_*` are not set in the deployed Worker / the token is not the named one. |
+| `atto1-collector-push: the listener ended (...)` | The BYD sign-in was refused or the connection died; the unit starts it again in five minutes. `BYD login refused with code 3008` above it: see the 3008 row. |
+| `atto1-collector-push: charge_start run failed (n of 3)` | The collector run for that event failed; the line carries the reader's last stderr line. After three it gives up on that event and the 30-minute timer records the charge. |
 | `atto1-collector-trigger: ... waiting` | A trigger is pending but the last run was under two minutes ago (either timer); it is picked up on a later tick. |
 | `atto1-collector-trigger: the Worker answered 302 / 401 / 403 to the pending list` | The collector's token is not admitted (302), the Worker has no `INGEST_*` (401), or the token is not the collector's (403). Same causes as the ingest row above. |
 | `atto1-collector-trigger: Command failed: ... (killed by SIGTERM)` | The reader ran past its 120 s timeout. The triggers stay pending and are retried (up to three runs each). The reader's stderr follows in the same line; the cause on the BYD side may be a slow position read while the car is moving. |
