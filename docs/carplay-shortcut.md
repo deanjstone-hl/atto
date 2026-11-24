@@ -53,18 +53,14 @@ These are live changes, so they are yours (tracked in
    back that the policy, the Actions secret and the Secrets Manager key exist.
 3. **Promote** `main` as usual ([deploy-branch.md](deploy-branch.md)). The push to `deploy`
    applies migration `0002_collect_triggers.sql` and deploys the Worker.
-4. **Install the pick-up on the homelab**, from the checkout at `origin/deploy`, after
-   `scripts/owner-steps/77.sh` has installed the collector:
-
-   ```bash
-   git -C ~/repos/atto fetch && git -C ~/repos/atto switch --detach origin/deploy
-   bash ~/repos/atto/scripts/owner-steps/6.sh --dry-run
-   bash ~/repos/atto/scripts/owner-steps/6.sh
-   ```
-
-   It links `atto1-collector-trigger.service` and `.timer`, copies the collector's drop-in to the
-   trigger service, reloads and enables the timer. Both services now share a lock, so a timer run
-   and a triggered run never read the car together.
+4. **The homelab pick-up installs itself** when the promotion in step 3 runs
+   `install-homelab.yml` (atto/18): it moves `~/repos/atto` to the promoted SHA, links
+   `atto1-collector-trigger.service` and `.timer`, copies the collector's drop-in to the trigger
+   service, reloads and enables the timer. The collector must already be installed with
+   `scripts/owner-steps/77.sh` (the workflow stops, changing nothing, without its drop-in). Both
+   services share a lock, so a timer run and a triggered run never read the car together. Check
+   it: `gh run list --workflow install-homelab.yml --limit 1`, then
+   `systemctl --user list-timers atto1-collector-trigger.timer`.
 5. **Build the two automations on the iPhone** (below), then drive somewhere.
 
 ## The Shortcut

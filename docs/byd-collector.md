@@ -57,7 +57,7 @@ in the state directory), so a later tick tries again; after three failed runs th
 acknowledged, so a broken login is tried three times, not once a minute until the Worker stops
 listing it. A failure's journal line names how the reader ended (exit code or kill signal, for
 example `killed by SIGTERM` at the 120 s timeout) and its stderr, with credentials and any VIN
-removed. `scripts/owner-steps/6.sh` installs the trigger units; the full order of owner
+removed. The promotion installs the trigger units (`install-homelab.yml`, below); the full order of owner
 steps is in [carplay-shortcut.md](carplay-shortcut.md).
 
 ## Charge start and stop (atto/8)
@@ -79,8 +79,8 @@ is a long-running unit (not a timer) that starts `collector/push.ts`, which supe
 - the reading is tagged `charge_start` or `charge_stop`, and carries no position. Nothing needs to
   be added to the session logic: the polls at each end are the session's start and end.
 
-`scripts/owner-steps/8.sh` installs the unit (after the promotion, since the Worker must accept
-the tags first). The listener does not retry a refused login in a loop: the unit waits five
+The promotion installs the unit (`install-homelab.yml`, below), so the Worker already accepts the
+tags when it starts. The listener does not retry a refused login in a loop: the unit waits five
 minutes between starts and stops after five in an hour. To start it again after fixing the cause:
 `systemctl --user reset-failed atto1-collector-push.service && systemctl --user start atto1-collector-push.service`.
 To turn it off: `systemctl --user disable --now atto1-collector-push.service`.
@@ -158,10 +158,11 @@ secrets).
    refused. Both are set in `wrangler.jsonc` from the 7 Nov 2026 run (atto1/90); the subject is the
    Access user id the script printed, and a 401/403 on the first collector run means it differs from `/api/me`'s `subject`.
 5. **Install the timer** on the homelab, after the promotion, from the checkout at
-   `origin/deploy`. The capacity is the ATTO 1 pack's usable kWh from its spec sheet:
+   `origin/deploy` (the promotion's `install-homelab.yml` run has already moved `~/repos/atto`
+   there; on a host it never ran on, `git -C ~/repos/atto fetch && git -C ~/repos/atto switch --detach origin/deploy`
+   first). The capacity is the ATTO 1 pack's usable kWh from its spec sheet:
 
    ```bash
-   git -C ~/repos/atto fetch && git -C ~/repos/atto switch --detach origin/deploy
    ATTO1_BATTERY_KWH=<kWh> bash ~/repos/atto/scripts/owner-steps/77.sh --dry-run
    ATTO1_BATTERY_KWH=<kWh> bash ~/repos/atto/scripts/owner-steps/77.sh
    ```
@@ -182,6 +183,33 @@ secrets).
    not live yet; a 403 means the token is not the one named in `INGEST_CLIENT_ID`.
 
 To turn it off: `systemctl --user disable --now atto1-collector.timer`. Rows already stored stay.
+
+## What a promotion does on the homelab (atto/18)
+
+The units run `collector/*.ts` from the checkout `~/repos/atto`, not from a runner workspace, so
+`deploy.yml` (a hosted runner, the Worker) cannot make a collector change live. The push to
+`deploy` also runs `install-homelab.yml` on the homelab runner, which runs
+`scripts/install-homelab.sh`:
+
+1. takes the per-host deploy lock and refuses unless its checkout is `origin/deploy`
+   (`scripts/require-deploy-checkout.sh`), so a run that waited behind a newer promotion stops;
+2. checks, changing nothing if one fails: `~/repos/atto` is a git checkout with no hand-edited
+   tracked file, the collector's drop-in exists (`77.sh` writes it), `flock`, node 22.18 or newer,
+   `~/.bws_token`;
+3. moves `~/repos/atto` to the promoted SHA (detached) and fails unless its HEAD is that SHA;
+4. links **every** `.service` and `.timer` in `collector/systemd` into `~/.config/systemd/user`
+   (a new unit needs no other step), copies the drop-in to each service but the collector's own,
+   and runs `daemon-reload`;
+5. enables every unit with an `[Install]` section: timers are enabled and started, the listener
+   is started when stopped and restarted when anything under `collector/` changed. It never starts
+   a one-shot service (a run reads the car) and leaves a `failed` listener as it is, with a
+   warning: `reset-failed` is the owner's call after BYD refuses a login.
+
+Check it after a promotion: `gh run list --workflow install-homelab.yml --limit 1` and
+`git -C ~/repos/atto rev-parse HEAD` against `git rev-parse origin/deploy`. Preview by hand, from a
+checkout at `origin/deploy`: `bash scripts/install-homelab.sh --dry-run`. The homelab needs a
+runner with the `self-hosted`, `homelab` and `deploy` labels for this repository; until one is
+registered the run stays queued and `~/repos/atto` stays where it was.
 
 ## The second account's grant
 

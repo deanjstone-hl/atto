@@ -1,7 +1,7 @@
 # The BYD push listener (atto/8): holds one BYD push connection open, and runs the collector
 # once when the car starts or stops charging, so a charging session has a reading at both ends.
-# collector/push.ts supervises collector/listen-byd.py. Installed by scripts/owner-steps/8.sh,
-# from a checkout of `deploy`.
+# collector/push.ts supervises collector/listen-byd.py. Installed by the promotion
+# (install-homelab.yml, scripts/install-homelab.sh), from a checkout of `deploy`.
 [Unit]
 Description=atto1 BYD push listener (runs the BYD collector once when the car starts or stops charging)
 After=network-online.target

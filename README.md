@@ -115,7 +115,7 @@ The dashboard's Trips card pairs each connect with the next disconnect. Triggers
 each event gets its own run, in order (a connect is never folded into a disconnect), and no run starts within two minutes of the end of the last. A failed run leaves its triggers pending for up to three tries. Setup,
 in order, and the Shortcut's exact settings: [docs/carplay-shortcut.md](docs/carplay-shortcut.md);
 the position amendment: [ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md).
-`bash scripts/owner-steps/7.sh --dry-run` previews the pre-promotion owner step (the Access policy for the phone's token and the `ATTO_TRIGGER_CLIENT_ID` secret); `bash scripts/owner-steps/6.sh --dry-run` previews the homelab install.
+`bash scripts/owner-steps/7.sh --dry-run` previews the pre-promotion owner step (the Access policy for the phone's token and the `ATTO_TRIGGER_CLIENT_ID` secret). The homelab units install with the promotion (`install-homelab.yml`, [docs/byd-collector.md](docs/byd-collector.md)).
 
 ### Charge start and stop
 
@@ -124,7 +124,7 @@ and runs the collector once when the car starts or stops charging, tagging that 
 `charge_start` or `charge_stop` (no position), so a charging session has a reading at both ends.
 The same two-minute debounce and bounded retry apply; the 30-minute timer still runs. Runbook:
 [docs/byd-collector.md](docs/byd-collector.md); the decision: [ADR-006](docs/decisions/adr-006-read-only-byd-import-via-second-account.md),
-Amendment 2. `bash scripts/owner-steps/8.sh --dry-run` previews the homelab install.
+Amendment 2. The unit installs with the promotion (`install-homelab.yml`).
 
 ## Scripts
 
@@ -160,7 +160,10 @@ Production changes only from the `deploy` branch; full runbook in
    Manager by `bitwarden/sm-action` just before them, scoped to those two steps as environment variables. Both scripts start with
    `scripts/require-deploy-checkout.sh`, which refuses unless the checkout is exactly
    `origin/deploy`.
-4. The same push runs `release.yml` (below).
+4. The same push runs `install-homelab.yml` on the homelab runner: it moves the collector checkout
+   `~/repos/atto` to the promoted SHA and installs every unit in `collector/systemd`
+   (`scripts/install-homelab.sh`, [docs/byd-collector.md](docs/byd-collector.md)). `deploy.yml` deploys only the Worker.
+5. The same push runs `release.yml` (below).
 
 Roll back with `git revert` on `main` plus a new promotion, never a force-push of `deploy`. The
 ops hub's Roll back card is the other path: it dispatches `deploy.yml` at a release tag (`vX.Y.Z`)

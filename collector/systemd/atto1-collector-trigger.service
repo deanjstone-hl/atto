@@ -1,7 +1,7 @@
 # The CarPlay trigger pick-up (atto/6): asks the Worker what is pending and, when a CarPlay
 # connect or disconnect is, runs the collector once for it. Started every minute by
-# atto1-collector-trigger.timer. Installed by scripts/owner-steps/6.sh, from a checkout of
-# `deploy`. It reads only the collector's Access token until something is pending, so an idle
+# atto1-collector-trigger.timer. Installed by the promotion (install-homelab.yml,
+# scripts/install-homelab.sh), from a checkout of `deploy`. It reads only the collector's Access token until something is pending, so an idle
 # minute never logs in to BYD.
 [Unit]
 Description=atto1 CarPlay trigger pick-up (runs the BYD collector once when the phone connects or leaves CarPlay)

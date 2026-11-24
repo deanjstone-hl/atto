@@ -24,7 +24,8 @@ commit that is already on `main`. Model and decisions: argus-config#504 (map), #
 | push to `main` | `ci.yml` | the same checks; no tag, no release, no deploy |
 | push to `deploy` | `release.yml` | `Test before release`, then semantic-release tags the promoted SHA and publishes the GitHub Release: one version per promotion (atto1#65, #70) |
 | push to `deploy` | `deploy.yml` | typecheck, lint, test, then `pnpm run db:migrate` and `pnpm run deploy`: the promotion is the deploy (argus-config#1048) |
-| manual dispatch | `deploy.yml`, `release.yml` | the same job, refused unless the ref is `deploy` (replay, below) |
+| push to `deploy` | `install-homelab.yml` | on the homelab runner: moves the collector checkout `~/repos/atto` to the promoted SHA and links, reloads and starts every `collector/systemd` unit (`scripts/install-homelab.sh`, atto/18). `deploy.yml` runs on a hosted runner and cannot do this |
+| manual dispatch | `deploy.yml`, `install-homelab.yml`, `release.yml` | the same job, refused unless the ref is `deploy` (replay, below); `install-homelab.yml` has no rollback-tag dispatch: a rollback is a revert plus a promotion |
 
 ## Versions
 
