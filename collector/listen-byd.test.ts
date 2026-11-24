@@ -154,6 +154,28 @@ describe('listen-byd.py', { timeout: 30_000 }, () => {
     expect(result.stdout + result.stderr).not.toContain('STUBVIN')
   })
 
+  // atto/20: the listener logged only "listening" for 70 minutes, so a missed charge stop could
+  // not be told from a silent channel. Each push for our car is logged, with no VIN or payload.
+  it('logs each push for our car on stderr as push: charging=<state>, with no VIN or payload', () => {
+    const result = run([
+      ['vehicleInfo', 'STUBVIN', { chargeState: 1, elecPercent: 50 }],
+      ['vehicleInfo', 'STUBVIN', { elecPercent: 51 }],
+      ['vehicleInfo', 'STUBVIN', { chargeState: 0 }],
+    ])
+    expect(result.stderr.match(/^push: charging=.*$/gm)).toEqual([
+      'push: charging=true',
+      'push: charging=none',
+      'push: charging=false',
+    ])
+    expect(result.stderr).not.toContain('elecPercent')
+    expect(result.stderr).not.toContain('STUBVIN')
+  })
+
+  it('does not log a push for another vehicle', () => {
+    const result = run([['vehicleInfo', 'OTHERVIN', { chargeState: 1 }]], { STUB_TWO_VEHICLES: '1', ATTO1_VIN: 'STUBVIN' })
+    expect(result.stderr).not.toContain('push: charging')
+  })
+
   it('explains a login refused with 3008 and prints nothing', () => {
     const result = run([], { STUB_LOGIN_REFUSED: '3008' })
     expect(result.status).not.toBe(0)

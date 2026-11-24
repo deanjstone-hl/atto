@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { COALESCE_MS, MAX_ATTEMPTS } from './trigger.ts'
-import { createPushQueue, nextCharge, parseSignal, type PushDeps } from './push.ts'
+import { createPushQueue, nextCharge, parseSignal, seedFromState, type PushDeps } from './push.ts'
 
 // The push listener's supervisor (atto/8): turns the listener's "charging" lines into
 // charge_start and charge_stop, and runs the collector once for each, no sooner than two
@@ -56,6 +56,47 @@ function setup(lastRun: Date | null = null, overrides: Partial<PushDeps> = {}) {
 const runs = (calls: string[]) => calls.filter((call) => call.startsWith('run '))
 
 describe('the push queue', () => {
+  // atto/20: the listener started at 08:03, mid-charge. The first push it heard was the charge
+  // stop, which only set the baseline, so no charge_stop fired. The baseline now comes from the
+  // collector's state (an open session means charging), not from the first push.
+  it('fires charge_stop for a first push of "not charging" when it was seeded as charging', async () => {
+    const { queue, calls } = setup()
+    queue.seed(true)
+    expect(queue.signal(false)).toBe('charge_stop')
+    await queue.drain()
+    expect(runs(calls)).toEqual(['run charge_stop'])
+    expect(calls).toContain('log baseline charging=true')
+  })
+
+  it('fires charge_start for a first push of "charging" when it was seeded as not charging', () => {
+    const { queue } = setup()
+    queue.seed(false)
+    expect(queue.signal(true)).toBe('charge_start')
+  })
+
+  it('lets the first push set the baseline when it was never seeded', () => {
+    const { queue } = setup()
+    expect(queue.signal(false)).toBeNull()
+  })
+
+  it('does not let a seed replace a state a push already set', () => {
+    const { queue } = setup()
+    queue.signal(false)
+    queue.seed(true)
+    expect(queue.signal(true)).toBe('charge_start')
+  })
+
+  it('logs a heartbeat with the age of the last push, and says when none has come', () => {
+    let now = NOW
+    const { queue, calls } = setup(null, { now: () => now })
+    queue.heartbeat()
+    expect(calls).toContain('log listening, no push yet')
+    queue.signal(false)
+    now = new Date(NOW.getTime() + 12 * 60_000)
+    queue.heartbeat()
+    expect(calls).toContain('log listening, last push 12 min ago')
+  })
+
   it('runs nothing for the baseline and nothing while the state holds', async () => {
     const { queue, calls } = setup()
     queue.signal(false)
@@ -134,5 +175,17 @@ describe('the push queue', () => {
     expect(calls.join('\n')).toContain(`giving up on charge_start after ${MAX_ATTEMPTS} failed runs`)
     await queue.drain()
     expect(runs(calls).at(-1)).toBe('run charge_stop')
+  })
+})
+
+describe('seedFromState', () => {
+  it('is charging when the collector has a session open, and not when it has none', () => {
+    expect(seedFromState({ lastAt: null, open: null })).toBe(false)
+    expect(
+      seedFromState({
+        lastAt: '2026-11-24T09:00:00.000Z',
+        open: { startedAt: '2026-11-24T07:00:00.000Z', startSoc: 40, lastAt: '2026-11-24T09:00:00.000Z', lastSoc: 60, odometerKm: 1 },
+      }),
+    ).toBe(true)
   })
 })

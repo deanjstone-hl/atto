@@ -11,8 +11,10 @@
 // A run that fails is tried again, up to MAX_ATTEMPTS runs, then given up on and logged; the
 // 30-minute timer carries on regardless and still brackets the session, as before.
 //
-// The first state seen after a start is a baseline, not an event: a charge already under way
-// when the listener starts (or restarts) is left to the timer.
+// The first state seen is a baseline, not an event. The baseline is seeded at start from the
+// collector's own state (an open session means the car was charging), so a charge that is
+// already under way when the listener starts still gets its stop (atto/20: the listener started
+// mid-charge, its first push was the stop, and that push only set the baseline).
 
 import { execFile, spawn } from 'node:child_process'
 import { join } from 'node:path'
@@ -20,8 +22,9 @@ import { createInterface } from 'node:readline'
 import { promisify } from 'node:util'
 import type { ChargeEvent } from '../worker/trigger-events.ts'
 import { fileLastRun } from './last-run.ts'
-import { exec, LAST_RUN_FILE, stateDirectoryFor } from './run.ts'
+import { exec, fileStateStore, LAST_RUN_FILE, stateDirectoryFor } from './run.ts'
 import { loadSecrets } from './secrets.ts'
+import type { SessionState } from './sessions.ts'
 import { COALESCE_MS, MAX_ATTEMPTS } from './trigger.ts'
 
 export function nextCharge(previous: boolean | null, charging: boolean): { charging: boolean; event: ChargeEvent | null } {
@@ -43,6 +46,11 @@ export function parseSignal(line: string): boolean | null {
   return null
 }
 
+// What the collector's state file says about the charge: a session open is a car charging.
+export const seedFromState = (state: SessionState): boolean => state.open !== null
+
+export const HEARTBEAT_MS = 30 * 60_000
+
 export type PushDeps = {
   run: (event: ChargeEvent) => Promise<void>
   loadLastRun: () => Promise<Date | null>
@@ -54,10 +62,29 @@ export function createPushQueue(deps: PushDeps) {
   let charging: boolean | null = null
   const pending: ChargeEvent[] = []
   let failedRuns = 0
+  let lastPushAt: Date | null = null
 
   return {
+    // Set the baseline from what the collector already knows. A push that has already set it wins.
+    seed(state: boolean): void {
+      if (charging !== null) return
+      charging = state
+      deps.log(`baseline charging=${state}`)
+    },
+
+    // One line that says the listener is alive and when it last heard from the cloud.
+    heartbeat(): void {
+      if (lastPushAt === null) {
+        deps.log('listening, no push yet')
+        return
+      }
+      const minutes = Math.round((deps.now().getTime() - lastPushAt.getTime()) / 60_000)
+      deps.log(`listening, last push ${minutes} min ago`)
+    },
+
     // Feed one charge state from the listener; returns the event it makes, if any.
     signal(state: boolean): ChargeEvent | null {
+      lastPushAt = deps.now()
       const next = nextCharge(charging, state)
       charging = next.charging
       if (next.event !== null) {
@@ -129,6 +156,7 @@ async function main(): Promise<void> {
   const { bydUsername, bydPassword } = await loadSecrets(env, exec, ['bydUsername', 'bydPassword'])
   const lastRun = fileLastRun(join(stateDirectoryFor(env), LAST_RUN_FILE))
   const log = (message: string) => console.log(`atto1-collector-push: ${message}`)
+  const stateFile = fileStateStore(join(stateDirectoryFor(env), 'state.json'))
   const queue = createPushQueue({
     run: collectorRunner(env),
     loadLastRun: () => lastRun.load(),
@@ -174,6 +202,12 @@ async function main(): Promise<void> {
   })
   for (const name of ['SIGTERM', 'SIGINT'] as const) process.on(name, () => listener.kill())
   log('listening for charge pushes')
+  try {
+    queue.seed(seedFromState(await stateFile.load()))
+  } catch (error) {
+    log(`no baseline from the state file: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  setInterval(() => queue.heartbeat(), HEARTBEAT_MS).unref()
 }
 
 if (import.meta.main) {

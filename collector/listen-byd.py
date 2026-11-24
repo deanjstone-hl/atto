@@ -83,6 +83,10 @@ async def main():
         if chosen["vin"] is None or vin != chosen["vin"]:
             return
         charging = charging_from(payload)
+        # One line per push for our car, to find out why a charge stop was not heard (atto/20):
+        # the charge state only, never the VIN, the position or the payload.
+        label = "none" if charging is None else str(charging).lower()
+        print(f"push: charging={label}", file=sys.stderr, flush=True)
         if charging is not None:
             print(json.dumps({"charging": charging}), flush=True)
 
