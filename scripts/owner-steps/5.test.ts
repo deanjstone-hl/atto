@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 // scripts/owner-steps/5.sh merges the collector's duplicate vehicle into the owner's
 // hand-made one (atto/5). These cases run it against a throwaway SQLite file standing in
@@ -47,16 +47,31 @@ function write(path: string, body: string, mode = 0o644) {
 
 type Seed = (db: DatabaseSync) => void
 
+// Replaying the migrations into a file-backed database costs seconds of DDL fsyncs on a
+// slow disk (20 s on the homelab's /tmp), so it runs once per file, in memory, and each test
+// copies the finished file.
+let templatePath = ''
+
+beforeAll(() => {
+  const templateDir = mkdtempSync(join(tmpdir(), 'atto-5-template-'))
+  templatePath = join(templateDir, 'd1.sqlite')
+  const memory = new DatabaseSync(':memory:')
+  memory.exec('pragma foreign_keys = on')
+  for (const file of readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort()) {
+    memory.exec(readFileSync(join(migrationsDir, file), 'utf8'))
+  }
+  memory.exec(`vacuum into '${templatePath}'`)
+  memory.close()
+}, 120_000)
+
 function world(seed: Seed) {
   const stub = mkdtempSync(join(tmpdir(), 'atto-5-'))
   const home = join(stub, 'home')
   const dbPath = join(stub, 'd1.sqlite')
 
+  copyFileSync(templatePath, dbPath)
   const source = new DatabaseSync(dbPath)
   source.exec('pragma foreign_keys = on')
-  for (const file of readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort()) {
-    source.exec(readFileSync(join(migrationsDir, file), 'utf8'))
-  }
   seed(source)
   source.close()
 
