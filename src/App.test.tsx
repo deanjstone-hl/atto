@@ -162,6 +162,12 @@ describe('dashboard page frame', () => {
     expect(container.querySelectorAll('h1')).toHaveLength(1)
   })
 
+  it('gives Sign out the button slot, so the coarse-pointer 44px target applies to it', async () => {
+    await render(fakeApi().api)
+
+    expect(signOutLink()?.getAttribute('data-slot')).toBe('button')
+  })
+
   it('shows one empty page, not a notice over empty cards, when the database is not set up', async () => {
     await render(fakeApi({ dashboard: async () => ({ kind: 'schema-missing' }) }).api)
 

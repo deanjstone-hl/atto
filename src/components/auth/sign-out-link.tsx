@@ -8,7 +8,7 @@ export const ACCESS_LOGOUT_PATH = '/cdn-cgi/access/logout'
 
 export function SignOutLink() {
   return (
-    <a href={ACCESS_LOGOUT_PATH} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+    <a href={ACCESS_LOGOUT_PATH} data-slot="button" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
       <LogOut data-icon="inline-start" aria-hidden="true" />
       Sign out
     </a>
