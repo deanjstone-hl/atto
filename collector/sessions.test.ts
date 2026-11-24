@@ -103,4 +103,36 @@ describe('charging sessions from polls', () => {
     const { sessions } = feed([sample(0, 20, true, null), sample(60, 50, false, null)])
     expect(sessions[0]).not.toHaveProperty('odometer_km')
   })
+
+  // atto/20: a 0% sample after a 15-hour charge ended the session below its start, and close()
+  // returned null, so 21.6 kWh was dropped.
+  describe('a closing sample far below the last charging poll', () => {
+    it('closes at the last poll that saw the charge, not at the bad sample', () => {
+      const { sessions, state } = feed([
+        sample(0, 42, true),
+        sample(300, 62, true),
+        sample(600, 83, true),
+        sample(630, 0, false),
+      ])
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0]).toMatchObject({ started_at: at(0), ended_at: at(600), start_soc_pct: 42, end_soc_pct: 83 })
+      expect(sessions[0].energy_kwh).toBeGreaterThan(0)
+      expect(state.open).toBeNull()
+    })
+
+    it('ends at the last poll even when the sample is a real, lower reading within 30 minutes', () => {
+      const { sessions } = feed([sample(0, 42, true), sample(60, 90, true), sample(80, 70, false)])
+      expect(sessions[0]).toMatchObject({ ended_at: at(60), end_soc_pct: 90 })
+    })
+
+    it('never ends below the last charging SoC, and never below the start', () => {
+      const { sessions } = feed([sample(0, 42, true), sample(60, 90, true), sample(70, 89, false)])
+      expect(sessions[0]).toMatchObject({ end_soc_pct: 90 })
+    })
+
+    it('keeps the sample as the end when it is more than 30 minutes later and not far below', () => {
+      const { sessions } = feed([sample(0, 20, true), sample(60, 50, true), sample(120, 48, false)])
+      expect(sessions[0]).toMatchObject({ ended_at: at(120), end_soc_pct: 50 })
+    })
+  })
 })

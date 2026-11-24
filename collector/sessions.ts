@@ -10,6 +10,9 @@
 const MAX_GAP_MS = 6 * 60 * 60_000
 // An AC wallbox on the ATTO 1 tops out well below this, a DC charger well above it.
 const DC_THRESHOLD_KW = 12
+// A closing sample this many points under the last charging poll is a bad read, not the car
+// (atto/20: a 0% placeholder after a 15-hour charge). The session ends at the last charging poll.
+const IMPLAUSIBLE_DROP_PCT = 5
 
 export type OpenSession = {
   startedAt: string
@@ -60,6 +63,13 @@ function close(open: OpenSession, endedAt: string, endSoc: number, batteryKwh: n
   return session
 }
 
+// The charge only ever went up while it was seen, so it never ends below the last charging poll;
+// a sample far below it is not the car and does not count as the end.
+function closeOnSample(open: OpenSession, sample: Sample, batteryKwh: number | null): ChargingSessionInput | null {
+  if (sample.soc < open.lastSoc - IMPLAUSIBLE_DROP_PCT) return close(open, open.lastAt, open.lastSoc, batteryKwh)
+  return close(open, sample.at, Math.max(open.lastSoc, sample.soc), batteryKwh)
+}
+
 const opened = (sample: Sample): OpenSession => ({
   startedAt: sample.at,
   startSoc: sample.soc,
@@ -91,6 +101,6 @@ export function advance(
   if (open === null) return { state: { lastAt: sample.at, open: null }, session: null }
   return {
     state: { lastAt: sample.at, open: null },
-    session: stale ? session : close(open, sample.at, sample.soc, options.batteryKwh),
+    session: stale ? session : closeOnSample(open, sample, options.batteryKwh),
   }
 }
