@@ -343,6 +343,52 @@ describe('the tag and the position a triggered reading carries (atto/6)', () => 
   })
 })
 
+// atto/20: a placeholder reading (0% / 0 km / odometer 0) was accepted and closed the open session
+// at 0%. The Worker refuses it whoever sends it, so no client mistake can store one.
+describe('an empty or backwards reading (atto/20)', () => {
+  const empty = { observed_at: '2026-11-07T03:00:00Z', soc_pct: 0, displayed_range_km: 0, odometer_km: 0 }
+
+  it('answers 422 for a reading whose charge, range and odometer are all 0, and writes nothing', async () => {
+    const response = await ingest(body({ observation: empty }))
+    expect(response.status).toBe(422)
+    expect(rows('vehicles')).toEqual([])
+    expect(rows('range_observations')).toEqual([])
+  })
+
+  it('also refuses 0% and 0 km with no odometer at all', async () => {
+    const { odometer_km: _odometer, ...noOdometer } = empty
+    expect((await ingest(body({ observation: noOdometer }))).status).toBe(422)
+    expect(rows('range_observations')).toEqual([])
+  })
+
+  it('still stores a flat battery that has a range or an odometer', async () => {
+    const response = await ingest(body({ observation: { ...empty, odometer_km: 3447 } }))
+    expect(response.status).toBe(201)
+    expect(rows('range_observations')).toHaveLength(1)
+  })
+
+  it('answers 422 with the reason when the odometer is lower than the vehicle highest stored one', async () => {
+    expect((await ingest(body())).status).toBe(201)
+    const response = await ingest(
+      body({ observation: { ...reading, observed_at: '2026-11-07T03:00:00Z', odometer_km: 3000 } }),
+    )
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ fields: { 'observation.odometer_km': expect.stringMatching(/lower/i) } })
+    expect(rows('range_observations')).toHaveLength(1)
+  })
+
+  it('accepts an odometer equal to or higher than the stored one, and one with no odometer', async () => {
+    await ingest(body())
+    const same = await ingest(body({ observation: { ...reading, observed_at: '2026-11-07T03:00:00Z' } }))
+    const higher = await ingest(
+      body({ observation: { ...reading, observed_at: '2026-11-07T04:00:00Z', odometer_km: 3500 } }),
+    )
+    const { odometer_km: _odometer, ...none } = reading
+    const absent = await ingest(body({ observation: { ...none, observed_at: '2026-11-07T05:00:00Z' } }))
+    expect([same.status, higher.status, absent.status]).toEqual([201, 201, 201])
+  })
+})
+
 describe('what ingest refuses', () => {
   it.each([
     ['a vehicle with no VIN', { vehicle: { nickname: 'ATTO 1' }, observation: reading }],

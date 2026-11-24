@@ -90,6 +90,15 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
   if (body.observation === undefined && body.charging_session === undefined) {
     errors.observation = 'Send an observation, a charging_session or both'
   }
+  // A placeholder reading (atto/20): 0% and 0 km with an odometer of 0 or none is not the car.
+  if (
+    observation !== null &&
+    observation.soc_pct === 0 &&
+    observation.displayed_range_km === 0 &&
+    (observation.odometer_km === undefined || observation.odometer_km === null || observation.odometer_km === 0)
+  ) {
+    errors.observation = 'Refused: 0% charge, 0 km range and no odometer is an empty reading, not the car'
+  }
 
   if (Object.keys(errors).length > 0 || 'errors' in vehicle) return failed(errors)
 
@@ -100,6 +109,20 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
     else {
       const created = await insertRow(db, ownerId, 'vehicles', vehicle.values)
       vehicleId = String(created?.id)
+    }
+
+    // An odometer never goes down: a lower one is a client mistake, and stored it would make the
+    // trips and the dashboard wrong. Only checked against a vehicle that already exists.
+    if (existing && typeof observation?.odometer_km === 'number') {
+      const highest = await db
+        .prepare('select max(odometer_km) as highest from range_observations where user_id = ?1 and vehicle_id = ?2')
+        .bind(ownerId, vehicleId)
+        .first<{ highest: number | null }>()
+      if (highest?.highest != null && observation.odometer_km < highest.highest) {
+        return failed({
+          'observation.odometer_km': `Lower than the highest odometer stored for this vehicle (${highest.highest} km)`,
+        })
+      }
     }
 
     const store = async (
