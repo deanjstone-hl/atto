@@ -100,6 +100,7 @@
   --text-2xl--line-height: 2rem;
   --text-3xl: 1.875rem;
   --text-3xl--line-height: 2.25rem;
+  --color-primary-text: var(--primary-text);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -203,6 +204,18 @@
     --unreachable-foreground: #fffaff;
     --critical: #c10007;
     --critical-foreground: #fffaff;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --gutter: 1rem;
+    --corner-clear: 1.3rem;
+    --edge-x: max(var(--gutter), var(--safe-l));
+    --edge-x-end: max(var(--gutter), var(--safe-r));
+    --edge-b: max(0.5rem, calc(var(--safe-b) - 12px));
+    --scroll-pad-top: 0px;
+    --scroll-pad-bottom: 0px;
+    --primary-text: #0a6f75;
     color-scheme: light;
 }
 
@@ -261,6 +274,7 @@
     --unreachable-foreground: #241523;
     --critical: #ff7a7e;
     --critical-foreground: #241523;
+    --primary-text: #5bd0d6;
     color-scheme: dark;
 }
 
@@ -926,4 +940,16 @@
 @utility surface-grain {
     background-image: var(--surface-grain);
     background-repeat: repeat;
+    --primary-text: #1b4ed8;
+    --primary-text: #4275f1;
+    --primary-text: #d12675;
+    --primary-text: #ca709b;
+    --primary-text: #8f6410;
+    --primary-text: #e3b34e;
+    --primary-text: #0a6f75;
+    --primary-text: #5bd0d6;
+    --primary-text: #b23535;
+    --primary-text: #f78a7a;
+    --primary-text: #a82c87;
+    --primary-text: #f099d8;
     background-size: var(--surface-grain-size);}
