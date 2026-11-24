@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseReading, toObservation, toVehicle, type Reading } from './map.ts'
+import { isEmptyReading, parseReading, toObservation, toVehicle, type Reading } from './map.ts'
 
 const reading = (overrides: Partial<Reading> = {}): Reading => ({
   vin: 'LC0CE4CB5S0123456',
@@ -47,11 +47,22 @@ describe('parseReading', () => {
   })
 })
 
-describe('toObservation', () => {
-  const now = new Date('2026-11-07T02:00:00Z')
+describe('isEmptyReading', () => {
+  it('is true for a reading with no timestamp, or with charge, range and odometer all 0', () => {
+    expect(isEmptyReading(reading({ observed_at: null }))).toBe(true)
+    expect(isEmptyReading(reading({ soc_pct: 0, range_km: 0, odometer_km: 0 }))).toBe(true)
+  })
 
+  it('is false for a real reading, including one that simply lacks a range or odometer', () => {
+    expect(isEmptyReading(reading())).toBe(false)
+    expect(isEmptyReading(reading({ soc_pct: null }))).toBe(false)
+    expect(isEmptyReading(reading({ soc_pct: 0, range_km: 0, odometer_km: null }))).toBe(false)
+  })
+})
+
+describe('toObservation', () => {
   it('maps charge, range and odometer, and uses the car’s own timestamp', () => {
-    expect(toObservation(reading(), now)).toEqual({
+    expect(toObservation(reading())).toEqual({
       observed_at: '2026-11-07T01:00:00.000Z',
       soc_pct: 53,
       displayed_range_km: 164,
@@ -60,19 +71,38 @@ describe('toObservation', () => {
   })
 
   it('rounds to whole numbers, as the table needs', () => {
-    expect(toObservation(reading({ soc_pct: 52.6, range_km: 163.4, odometer_km: 3446.7 }), now)).toMatchObject({
+    expect(toObservation(reading({ soc_pct: 52.6, range_km: 163.4, odometer_km: 3446.7 }))).toMatchObject({
       soc_pct: 53,
       displayed_range_km: 163,
       odometer_km: 3447,
     })
   })
 
-  it('falls back to the collector clock when the car sent no timestamp', () => {
-    expect(toObservation(reading({ observed_at: null }), now)?.observed_at).toBe('2026-11-07T02:00:00.000Z')
+  // atto/20: BYD answered a placeholder (no timestamp, 0% / 0 km / odometer 0) at the moment
+  // the charger stopped. Posting it closed the open session and dropped a 15-hour charge.
+  it('stores nothing when the car sent no timestamp: a reading without its own time is untrustworthy', () => {
+    expect(toObservation(reading({ observed_at: null }))).toBeNull()
+  })
+
+  it('stores nothing for the empty placeholder reading (0%, 0 km, odometer 0, no timestamp)', () => {
+    expect(
+      toObservation(reading({ observed_at: null, soc_pct: 0, range_km: 0, odometer_km: 0, charge_state: 0 })),
+    ).toBeNull()
+  })
+
+  it('stores nothing when charge, range and odometer are all 0, even with a timestamp', () => {
+    expect(toObservation(reading({ soc_pct: 0, range_km: 0, odometer_km: 0 }))).toBeNull()
+  })
+
+  it('still stores a flat battery that has a range or an odometer', () => {
+    expect(toObservation(reading({ soc_pct: 0, range_km: 0, odometer_km: 3447 }))).toMatchObject({
+      soc_pct: 0,
+      odometer_km: 3447,
+    })
   })
 
   it('leaves the odometer out when the car did not send one', () => {
-    expect(toObservation(reading({ odometer_km: null }), now)).not.toHaveProperty('odometer_km')
+    expect(toObservation(reading({ odometer_km: null }))).not.toHaveProperty('odometer_km')
   })
 
   it.each([
@@ -81,17 +111,16 @@ describe('toObservation', () => {
     ['a charge above 100', { soc_pct: 101 }],
     ['a negative range', { range_km: -1 }],
   ])('stores nothing for %s', (_label, overrides) => {
-    expect(toObservation(reading(overrides), now)).toBeNull()
+    expect(toObservation(reading(overrides))).toBeNull()
   })
 })
 
 describe('toObservation for a triggered run (atto/6)', () => {
-  const now = new Date('2026-11-07T02:00:00Z')
   // 0, 0 is an obvious fake.
   const located = reading({ latitude: 0, longitude: 0 })
 
   it('tags the reading with the event and adds the position', () => {
-    expect(toObservation(located, now, 'carplay_connect')).toEqual({
+    expect(toObservation(located, 'carplay_connect')).toEqual({
       observed_at: '2026-11-07T01:00:00.000Z',
       soc_pct: 53,
       displayed_range_km: 164,
@@ -103,14 +132,14 @@ describe('toObservation for a triggered run (atto/6)', () => {
   })
 
   it('tags a reading that has no position (the GPS read failed) and sends none', () => {
-    const observation = toObservation(reading(), now, 'carplay_disconnect')
+    const observation = toObservation(reading(), 'carplay_disconnect')
     expect(observation).toMatchObject({ trigger_event: 'carplay_disconnect' })
     expect(observation).not.toHaveProperty('latitude')
     expect(observation).not.toHaveProperty('longitude')
   })
 
   it('never sends a position for a timer run, whatever the reading holds', () => {
-    const observation = toObservation(located, now)
+    const observation = toObservation(located)
     expect(observation).not.toHaveProperty('trigger_event')
     expect(observation).not.toHaveProperty('latitude')
     expect(observation).not.toHaveProperty('longitude')
@@ -120,7 +149,7 @@ describe('toObservation for a triggered run (atto/6)', () => {
     ['a latitude above 90', { latitude: 91, longitude: 0 }],
     ['a longitude below -180', { latitude: 0, longitude: -181 }],
   ])('drops %s, keeping the reading and its tag, instead of losing the whole poll to a 422', (_label, position) => {
-    const observation = toObservation(reading(position), now, 'carplay_connect')
+    const observation = toObservation(reading(position), 'carplay_connect')
     expect(observation).toMatchObject({ trigger_event: 'carplay_connect', soc_pct: 53 })
     expect(observation).not.toHaveProperty('latitude')
   })
@@ -148,7 +177,7 @@ describe('the reader fixtures', () => {
 
   it('parse and map', () => {
     const parked = parseReading(fixture('reading-parked.json'))
-    expect(toObservation(parked, new Date())).toEqual({
+    expect(toObservation(parked)).toEqual({
       observed_at: '2026-10-21T07:15:00.000Z',
       soc_pct: 53,
       displayed_range_km: 164,

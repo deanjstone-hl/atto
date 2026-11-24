@@ -109,6 +109,40 @@ describe('runOnce', () => {
     expect(post).not.toHaveBeenCalled()
   })
 
+  // atto/20: the 08:30 run on 24 Nov 2026 sent 0% / 0 km / odometer 0 with no timestamp, closed
+  // the open session at 0% and dropped the night's charge.
+  describe('an empty reading', () => {
+    const open: SessionState = {
+      lastAt: '2026-11-06T21:30:00.000Z',
+      open: {
+        startedAt: '2026-11-06T07:00:00.000Z',
+        startSoc: 42,
+        lastAt: '2026-11-06T21:30:00.000Z',
+        lastSoc: 83,
+        odometerKm: 4726,
+      },
+    }
+    const empty = () => reading({ observed_at: null, soc_pct: 0, range_km: 0, odometer_km: 0, charge_state: 0 })
+
+    it('posts nothing, leaves the open session as it is and fails the run so it is retried', async () => {
+      const log = vi.fn()
+      const post = vi.fn(async () => ({ status: 201 }))
+      const { deps, saved } = setup({ readCar: async () => empty(), post, log }, open)
+      await expect(runOnce(deps)).rejects.toThrow(/empty reading/)
+      expect(post).not.toHaveBeenCalled()
+      expect(saved()).toBeNull()
+      expect(log).toHaveBeenCalledWith('empty reading, skipped')
+    })
+
+    it('closes the session on the next real reading', async () => {
+      const real = reading({ observed_at: '2026-11-06T21:34:00.000Z', soc_pct: 92, range_km: 283, odometer_km: 4726, charge_state: 0 })
+      const { deps, sent, saved } = setup({ readCar: async () => real }, open)
+      await runOnce(deps)
+      expect(sent[0]).toMatchObject({ charging_session: { start_soc_pct: 42, end_soc_pct: 92 } })
+      expect(saved()?.open).toBeNull()
+    })
+  })
+
   it('lets a failed read through without touching state or the Worker', async () => {
     const post = vi.fn(async () => ({ status: 201 }))
     const { deps, saved } = setup({

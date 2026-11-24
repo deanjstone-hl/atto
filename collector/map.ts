@@ -73,19 +73,28 @@ export function parseReading(input: unknown): Reading {
 const isPosition = (latitude: number, longitude: number) =>
   latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
 
+// BYD answers a placeholder realtime when the car's data is not ready (24 Nov 2026, atto/20: no
+// timestamp, 0% / 0 km / odometer 0, at the moment the charger stopped). A reading with no
+// timestamp of its own, or with charge, range and odometer all 0, is that placeholder, not the
+// car; it is never recorded, and never closes or opens a session. Only an all-zero reading
+// counts: a flat battery still has an odometer.
+export const isEmptyReading = (reading: Reading): boolean =>
+  reading.observed_at === null ||
+  (reading.soc_pct === 0 && reading.range_km === 0 && reading.odometer_km === 0)
+
 // `event` is set only for a run something triggered: it tags the reading. Only a CarPlay
 // connect or disconnect also gives it the car's position (a charge run never reads one, atto/8).
 // A position the Worker would refuse (out of range) is dropped, so the reading and its tag
 // still go through.
-export function toObservation(reading: Reading, now: Date, event?: ReadingEvent): Observation | null {
+export function toObservation(reading: Reading, event?: ReadingEvent): Observation | null {
   const { soc_pct, range_km, odometer_km } = reading
-  if (soc_pct === null || range_km === null) return null
+  if (isEmptyReading(reading) || soc_pct === null || range_km === null || reading.observed_at === null) return null
   const soc = Math.round(soc_pct)
   const range = Math.round(range_km)
   if (soc < 0 || soc > 100 || range < 0) return null
 
   const observation: Observation = {
-    observed_at: new Date(reading.observed_at ?? now).toISOString(),
+    observed_at: new Date(reading.observed_at).toISOString(),
     soc_pct: soc,
     displayed_range_km: range,
   }

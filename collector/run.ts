@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { isChargeEvent, isTriggerEvent, type ChargeEvent, type ReadingEvent } from '../worker/trigger-events.ts'
 import { fileLastRun } from './last-run.ts'
-import { parseReading, toObservation, toVehicle, type Reading } from './map.ts'
+import { isEmptyReading, parseReading, toObservation, toVehicle, type Reading } from './map.ts'
 import { loadSecrets, type Exec } from './secrets.ts'
 import { advance, emptyState, type SessionState } from './sessions.ts'
 
@@ -37,7 +37,14 @@ export async function runOnce(deps: RunDeps, options: RunOptions = {}): Promise<
   const reading = await deps.readCar(isTriggerEvent(event))
   const state = await deps.loadState()
 
-  const observation = toObservation(reading, deps.now(), event)
+  // A placeholder reading (atto/20) posts nothing and leaves the open session as it is; the run
+  // fails so it is read again (the pick-up's and the listener's bounded retry, atto/16).
+  if (isEmptyReading(reading)) {
+    deps.log('empty reading, skipped')
+    throw new Error('the car sent an empty reading; nothing was recorded')
+  }
+
+  const observation = toObservation(reading, event)
   if (observation === null) {
     deps.log('the car sent no charge or range; nothing to send')
     return
