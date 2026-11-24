@@ -60,6 +60,24 @@ example `killed by SIGTERM` at the 120 s timeout) and its stderr, with credentia
 removed. The promotion installs the trigger units (`install-homelab.yml`, below); the full order of owner
 steps is in [carplay-shortcut.md](carplay-shortcut.md).
 
+## An empty reading (atto/20)
+
+On 24 Nov 2026 BYD answered a placeholder realtime (no timestamp, 0% / 0 km / odometer 0) at the
+moment the charger stopped. Posted as real, it closed the open session below its start and the
+night's 21.6 kWh charge was dropped. Now:
+
+- `read-byd.py` reads the realtime up to three times, 5 seconds apart (`ATTO1_EMPTY_RETRY_SECONDS`),
+  when it carries no timestamp or has charge, range and odometer all 0; still empty, it exits
+  non-zero with `the car sent an empty reading` and prints nothing;
+- `toObservation` returns nothing for the same readings, and `runOnce` logs `empty reading, skipped`
+  and fails the run: nothing is posted, `state.json` is untouched, and the pick-up's and the
+  listener's bounded retry (atto/16) tries again. The car's own timestamp is required; the
+  collector clock is no longer a fallback;
+- a closing sample more than 5 points below the last charging poll ends the session at that poll
+  instead of at the sample, so a bad end sample cannot drop a real charge;
+- the Worker's ingest refuses (422) a reading of 0% / 0 km with no odometer or an odometer of 0,
+  and a reading whose odometer is lower than the vehicle's highest stored one.
+
 ## Charge start and stop (atto/8)
 
 A third trigger runs the same collector when the car starts or stops charging, so a charging
@@ -71,8 +89,9 @@ is a long-running unit (not a timer) that starts `collector/push.ts`, which supe
   client). It prints `{"charging": true|false}` whenever a push for the car carries a charge
   state, and never anything else a push carries. It renews its sign-in every 10 minutes
   (`ATTO1_PUSH_REFRESH_SECONDS`), and the unit restarts it every 12 hours;
-- `push.ts` takes the first state as a baseline, so a charge already under way when it starts is
-  left to the 30-minute timer. A change to charging is `charge_start`, a change away from it is
+- `push.ts` seeds its baseline at start from `state.json` (a session open means the car is
+  charging), so a charge already under way when it starts still gets its `charge_stop`; a push that
+  arrives first, before the seed, sets the baseline itself. A change to charging is `charge_start`, a change away from it is
   `charge_stop`. Each runs `collector/run.ts --event <event>` once under the shared
   `atto1-collector.lock`, no sooner than two minutes after the last run from any trigger, oldest
   first, and a failed run is tried up to three times;
@@ -84,6 +103,12 @@ tags when it starts. The listener does not retry a refused login in a loop: the 
 minutes between starts and stops after five in an hour. To start it again after fixing the cause:
 `systemctl --user reset-failed atto1-collector-push.service && systemctl --user start atto1-collector-push.service`.
 To turn it off: `systemctl --user disable --now atto1-collector-push.service`.
+
+What it logs, so a missed charge stop can be told from a silent channel (atto/20): the listener
+writes one `push: charging=true|false|none` line to the journal for each push for the car (the charge
+state only: no VIN, position or payload; `none` is a push with no charge state), and `push.ts`
+writes `baseline charging=<state>` at start and `listening, last push <n> min ago` (or `no push
+yet`) every 30 minutes.
 
 Not verified live: whether a login by the 30-minute reader ends the listener's push connection.
 pybyd's source treats a connection taken over by another login as a refusal it recovers from by
