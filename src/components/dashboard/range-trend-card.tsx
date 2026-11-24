@@ -13,6 +13,9 @@ const HEIGHT = 160
 const PADDING = 12
 
 const directionIcons = { up: TrendingUp, down: TrendingDown, flat: Minus }
+// The word and the icon carry the state; the colour only reinforces it.
+const directionWords = { up: 'Rising', down: 'Falling', flat: 'Steady' }
+const directionColours = { up: 'text-success', down: 'text-warning', flat: 'text-muted-foreground' }
 
 function plot(points: RangeTrendPoint[], minKm: number, maxKm: number) {
   // Pad the y-axis so a flat series does not sit on the edge.
@@ -34,7 +37,7 @@ function Summary({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
       <dt className="text-2xs text-muted-foreground">{label}</dt>
-      <dd className="flex items-center gap-1 text-base font-medium tabular-nums">{value}</dd>
+      <dd className="text-base font-medium tabular-nums">{value}</dd>
     </div>
   )
 }
@@ -76,11 +79,16 @@ export function RangeTrendCard({ trend }: RangeTrendCardProps) {
           <Summary label="Average" value={trend.averageKm === null ? '—' : formatKm(trend.averageKm)} />
           <div className="flex flex-col gap-1">
             <dt className="text-2xs text-muted-foreground">Change</dt>
-            <dd className="flex items-center gap-1 text-base font-medium tabular-nums">
-              {DirectionIcon && <DirectionIcon className="size-4" aria-hidden="true" />}
+            <dd className="flex flex-wrap items-center gap-x-1 text-base font-medium tabular-nums">
               {trend.changeKm === null
                 ? '—'
                 : `${trend.changeKm > 0 ? '+' : ''}${formatKm(trend.changeKm)}`}
+              {trend.direction && DirectionIcon && (
+                <span className={`flex items-center gap-1 text-sm ${directionColours[trend.direction]}`}>
+                  <DirectionIcon className="size-4" aria-hidden="true" />
+                  {directionWords[trend.direction]}
+                </span>
+              )}
             </dd>
           </div>
         </dl>
@@ -107,7 +115,7 @@ export function RangeTrendCard({ trend }: RangeTrendCardProps) {
                 <polyline
                   points={coordinates.map(({ x, y }) => `${x},${y}`).join(' ')}
                   fill="none"
-                  className="stroke-chart-2"
+                  className="stroke-chart-1"
                   strokeWidth={2}
                   strokeLinejoin="round"
                   strokeLinecap="round"
@@ -119,7 +127,7 @@ export function RangeTrendCard({ trend }: RangeTrendCardProps) {
             {coordinates.map(({ x, y, point }) => (
               <span
                 key={point.observedAt}
-                className="absolute size-2 -translate-1/2 rounded-full bg-chart-2 ring-2 ring-card"
+                className="absolute size-2 -translate-1/2 rounded-full bg-chart-1 ring-2 ring-card"
                 style={{ left: `${(x / WIDTH) * 100}%`, top: `${(y / HEIGHT) * 100}%` }}
                 title={`${formatDate(point.observedAt)}: ${formatKm(point.projectedFullRangeKm)} (${point.displayedRangeKm} km at ${point.socPct}%)`}
               />
