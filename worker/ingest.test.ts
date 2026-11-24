@@ -301,13 +301,23 @@ describe('which vehicle a reading lands on (atto/5)', () => {
 })
 
 describe('the tag and the position a triggered reading carries (atto/6)', () => {
-  // 0, 0 is an obvious fake; a real position never appears in this repository.
-  const triggered = { ...reading, trigger_event: 'carplay_connect', latitude: 0, longitude: 0 }
+  // 0.5, -0.5 is an obvious fake; a real position never appears in this repository.
+  const triggered = { ...reading, trigger_event: 'carplay_connect', latitude: 0.5, longitude: -0.5 }
 
   it('stores the event and the position, owned by the owner', async () => {
     expect((await ingest(body({ observation: triggered }))).status).toBe(201)
     expect(rows('range_observations')).toMatchObject([
-      { user_id: ownerSubject, trigger_event: 'carplay_connect', latitude: 0, longitude: 0 },
+      { user_id: ownerSubject, trigger_event: 'carplay_connect', latitude: 0.5, longitude: -0.5 },
+    ])
+  })
+
+  // atto/21: 0, 0 is BYD's no-fix placeholder. The Worker keeps the reading and the tag and
+  // stores no position, so an older collector cannot put it back.
+  it('stores a connect reading that arrives with 0, 0 as no position', async () => {
+    const response = await ingest(body({ observation: { ...triggered, latitude: 0, longitude: 0 } }))
+    expect(response.status).toBe(201)
+    expect(rows('range_observations')).toMatchObject([
+      { user_id: ownerSubject, trigger_event: 'carplay_connect', latitude: null, longitude: null },
     ])
   })
 
@@ -332,8 +342,8 @@ describe('the tag and the position a triggered reading carries (atto/6)', () => 
   it.each([
     ['an unknown event', { ...triggered, trigger_event: 'ignition_on' }],
     ['a charge event with a position (a charge run never reads one)', { ...triggered, trigger_event: 'charge_start' }],
-    ['a position with no event', { ...reading, latitude: 0, longitude: 0 }],
-    ['a latitude with no longitude', { ...reading, trigger_event: 'carplay_connect', latitude: 0 }],
+    ['a position with no event', { ...reading, latitude: 0.5, longitude: -0.5 }],
+    ['a latitude with no longitude', { ...reading, trigger_event: 'carplay_connect', latitude: 0.5 }],
     ['a latitude above 90', { ...triggered, latitude: 91 }],
     ['a longitude that is text', { ...triggered, longitude: '0' }],
   ])('answers 422 for %s and writes nothing', async (_label, observation) => {

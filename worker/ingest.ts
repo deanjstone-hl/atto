@@ -10,6 +10,7 @@
 // Every row belongs to the Access subject the Worker was configured with, never to a
 // value in the body.
 
+import { isNoFix } from '../src/lib/data-model/position'
 import { databaseFailure, failed, insertRow, readObject, validateRow, type Fields } from './writes'
 import type { D1Like } from './d1'
 import { json } from './json'
@@ -87,6 +88,16 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
   }
   const observation = checked('observation', 'range-observations')
   const chargingSession = checked('charging_session', 'charging-sessions')
+  // BYD's no-fix 0, 0 (atto/21) is no position: the reading and its tag are stored, the pair is not.
+  if (
+    observation !== null &&
+    typeof observation.latitude === 'number' &&
+    typeof observation.longitude === 'number' &&
+    isNoFix(observation.latitude, observation.longitude)
+  ) {
+    delete observation.latitude
+    delete observation.longitude
+  }
   if (body.observation === undefined && body.charging_session === undefined) {
     errors.observation = 'Send an observation, a charging_session or both'
   }
