@@ -20,7 +20,7 @@ import { VehicleStatusCard } from './vehicle-status-card'
 function DashboardSections({ data }: { data: DashboardData }) {
   const { vehicle, sessions, observations, features, tripReadings } = data
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <VehicleStatusCard status={vehicle ? buildVehicleStatus(vehicle, observations, sessions) : null} />
       <div className="lg:col-span-2">
         <RangeTrendCard trend={buildRangeTrend(observations)} />
@@ -38,7 +38,7 @@ function DashboardSections({ data }: { data: DashboardData }) {
 
 function DashboardSkeleton() {
   return (
-    <div className="grid gap-4 lg:grid-cols-3" aria-busy="true" aria-label="Loading dashboard">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" aria-busy="true" aria-label="Loading dashboard">
       {['', 'lg:col-span-2', 'lg:col-span-2', ''].map((span, index) => (
         <Card key={index} className={span}>
           <CardContent className="flex flex-col gap-3">

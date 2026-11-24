@@ -48,7 +48,7 @@ export function RecentSessionsCard({ sessions }: RecentSessionsCardProps) {
                     <span className="font-medium">{formatDateTime(session.startedAt)}</span>
                     <Badge variant="outline">{chargerLabels[session.chargerType]}</Badge>
                   </div>
-                  <span className="truncate text-muted-foreground">
+                  <span className="text-muted-foreground [overflow-wrap:anywhere]">
                     {[session.locationName, sessionDetails(session)].filter(Boolean).join(' · ') ||
                       'No details'}
                   </span>
