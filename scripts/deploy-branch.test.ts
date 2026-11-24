@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The deploy-branch model for atto1 (argus-config#504, #603): production changes only
 // when the owner promotes a commit on main to the `deploy` branch (scripts/promote.sh),
@@ -11,6 +11,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // repos with a local bare origin; nothing touches the real remote. The static cases pin
 // the wiring that would otherwise fail silently: a remote `wrangler` script (deploy or
 // D1 migration) without the guard, or a deploy workflow back on `main`.
+
+// Every case shells out to git in a throwaway repository, which takes seconds when the
+// runner is busy with another heavy command; vitest's 5000 ms default has timed out a
+// passing test there (atto1/112). The cases and their setup hooks get 30 s instead.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
 
 const root = join(import.meta.dirname, '..')
 const promote = join(root, 'scripts/promote.sh')
