@@ -141,7 +141,7 @@ export const fixtureObservations: RangeObservation[] = [
 export const fixtureTripReadings: RangeObservation[] = [
   observation(22, '2026-10-07T07:40:00.000Z', 64, 192, 4890, { event: 'carplay_connect', latitude: 0.02, longitude: 0.02 }),
   observation(21, '2026-10-06T23:10:00.000Z', 72, 214, 4838, { event: 'carplay_disconnect', latitude: 0.01, longitude: 0.01 }),
-  observation(20, '2026-10-06T22:30:00.000Z', 80, 236, 4812, { event: 'carplay_connect', latitude: 0, longitude: 0 }),
+  observation(20, '2026-10-06T22:30:00.000Z', 80, 236, 4812, { event: 'carplay_connect', latitude: 0.005, longitude: 0.005 }),
 ]
 
 function feature(

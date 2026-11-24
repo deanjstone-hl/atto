@@ -41,7 +41,7 @@ describe('buildTrips', () => {
   it('pairs a connect with the next disconnect and works out what the drive used', () => {
     const [trip] = buildTrips(
       [
-        connect('2026-11-01T01:00:00Z', { soc_pct: 80, displayed_range_km: 240, odometer_km: 5000, latitude: 0, longitude: 0 }),
+        connect('2026-11-01T01:00:00Z', { soc_pct: 80, displayed_range_km: 240, odometer_km: 5000, latitude: 0.25, longitude: 0.25 }),
         disconnect('2026-11-01T01:45:00Z', { soc_pct: 74, displayed_range_km: 222, odometer_km: 5031, latitude: 0.5, longitude: -0.5 }),
       ],
       30,
@@ -56,7 +56,7 @@ describe('buildTrips', () => {
       socUsedPct: 6,
       energyKwh: 1.8,
       rangeUsedKm: 18,
-      start: { latitude: 0, longitude: 0 },
+      start: { latitude: 0.25, longitude: 0.25 },
       end: { latitude: 0.5, longitude: -0.5 },
     })
   })
@@ -141,6 +141,24 @@ describe('buildTrips', () => {
     )
     expect(trip.start).toEqual({ latitude: 3, longitude: 4 })
     expect(trip.end).toBeNull()
+  })
+
+  // atto/21: rows stored before the collector dropped BYD's no-fix 0, 0 still hold it.
+  it('reads a stored 0, 0 as an unknown position, not a place', () => {
+    const [trip] = buildTrips(
+      [
+        connect('2026-11-01T01:00:00Z', { latitude: 0, longitude: 0 }),
+        disconnect('2026-11-01T02:00:00Z', { latitude: 0, longitude: 0 }),
+      ],
+      30,
+    )
+    expect(trip.start).toBeNull()
+    expect(trip.end).toBeNull()
+  })
+
+  it('keeps a position with only one zero coordinate', () => {
+    const [trip] = buildTrips([connect('2026-11-01T01:00:00Z', { latitude: 0, longitude: 4 })], 30)
+    expect(trip.start).toEqual({ latitude: 0, longitude: 4 })
   })
 
   it('builds the fixture trips: one finished, one in progress', () => {

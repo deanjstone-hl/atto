@@ -2,6 +2,7 @@
 // The collector tags such a reading with its event; a trip is a connect reading paired with
 // the next disconnect reading. Pure: no I/O and no formatting.
 
+import { isNoFix } from '../data-model/position'
 import type { RangeObservation } from '../data-model/types'
 
 export type Position = { latitude: number; longitude: number }
@@ -26,8 +27,10 @@ export type Trip = {
 const CONNECT = 'carplay_connect'
 const DISCONNECT = 'carplay_disconnect'
 
+// Rows stored before the collector dropped BYD's no-fix 0, 0 (atto/21) still hold it: unknown.
 function position(row: RangeObservation): Position | null {
-  return row.latitude === null || row.longitude === null ? null : { latitude: row.latitude, longitude: row.longitude }
+  if (row.latitude === null || row.longitude === null || isNoFix(row.latitude, row.longitude)) return null
+  return { latitude: row.latitude, longitude: row.longitude }
 }
 
 // What a drive used is a fall in the car's own numbers. A rise (it was charged, or the

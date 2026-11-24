@@ -24,7 +24,7 @@ function tripDetails(trip: Trip): string {
 }
 
 function Point({ label, position }: { label: string; position: Position | null }) {
-  if (position === null) return <span>{label}: no position</span>
+  if (position === null) return <span>{label}: unknown</span>
   return (
     <span>
       {label}:{' '}

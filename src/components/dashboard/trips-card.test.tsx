@@ -53,11 +53,21 @@ describe('TripsCard', () => {
   it('links the start and end points to a map without calling a geocoder', async () => {
     await render()
     const hrefs = [...container.querySelectorAll('li')[1].querySelectorAll('a')].map((link) => link.getAttribute('href'))
-    expect(hrefs).toEqual([mapUrl({ latitude: 0, longitude: 0 }), mapUrl({ latitude: 0.01, longitude: 0.01 })])
+    expect(hrefs).toEqual([mapUrl({ latitude: 0.005, longitude: 0.005 }), mapUrl({ latitude: 0.01, longitude: 0.01 })])
     for (const link of container.querySelectorAll('a')) {
       expect(link.getAttribute('rel')).toContain('noopener')
       expect(link.getAttribute('rel')).toContain('noreferrer')
     }
+  })
+
+  it('says the start is unknown, with no map link, for a stored 0, 0 (atto/21)', async () => {
+    const [open, ...rest] = fixtureTripReadings
+    const placeholder = [{ ...open, latitude: 0, longitude: 0 }, ...rest]
+    await render(buildTrips(placeholder, null))
+    const first = container.querySelectorAll('li')[0]
+    expect(first.querySelectorAll('a')).toHaveLength(0)
+    expect(first.textContent).toContain('Start: unknown')
+    expect(first.textContent).not.toContain('0.0000')
   })
 
   it('says so when a trip has no position, and leaves out what it could not work out', async () => {
@@ -66,7 +76,7 @@ describe('TripsCard', () => {
     await render(buildTrips(bare, null))
     const first = container.querySelectorAll('li')[0]
     expect(first.querySelectorAll('a')).toHaveLength(0)
-    expect(first.textContent).toContain('Start: no position')
+    expect(first.textContent).toContain('Start: unknown')
     expect(container.querySelectorAll('li')[1].textContent).not.toContain('kWh')
   })
 
