@@ -1,6 +1,7 @@
 // Turns what read-byd.py prints into what POST /api/ingest/byd accepts (ADR-006).
 // Pure: no network, no clock except the one passed in.
 
+import { isNoFix } from '../src/lib/data-model/position.ts'
 import { isTriggerEvent, type ReadingEvent } from '../worker/trigger-events.ts'
 
 // What the reader prints, and all of it. It never carries door or tyre data, and it carries
@@ -84,8 +85,8 @@ export const isEmptyReading = (reading: Reading): boolean =>
 
 // `event` is set only for a run something triggered: it tags the reading. Only a CarPlay
 // connect or disconnect also gives it the car's position (a charge run never reads one, atto/8).
-// A position the Worker would refuse (out of range) is dropped, so the reading and its tag
-// still go through.
+// A position the Worker would refuse (out of range) or that is BYD's no-fix 0, 0 (atto/21) is
+// dropped, so the reading and its tag still go through.
 export function toObservation(reading: Reading, event?: ReadingEvent): Observation | null {
   const { soc_pct, range_km, odometer_km } = reading
   if (isEmptyReading(reading) || soc_pct === null || range_km === null || reading.observed_at === null) return null
@@ -102,7 +103,13 @@ export function toObservation(reading: Reading, event?: ReadingEvent): Observati
   if (event !== undefined) {
     observation.trigger_event = event
     const { latitude, longitude } = reading
-    if (isTriggerEvent(event) && latitude !== undefined && longitude !== undefined && isPosition(latitude, longitude)) {
+    if (
+      isTriggerEvent(event) &&
+      latitude !== undefined &&
+      longitude !== undefined &&
+      isPosition(latitude, longitude) &&
+      !isNoFix(latitude, longitude)
+    ) {
       observation.latitude = latitude
       observation.longitude = longitude
     }

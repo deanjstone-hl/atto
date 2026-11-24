@@ -116,8 +116,8 @@ describe('toObservation', () => {
 })
 
 describe('toObservation for a triggered run (atto/6)', () => {
-  // 0, 0 is an obvious fake.
-  const located = reading({ latitude: 0, longitude: 0 })
+  // 0.5, -0.5 is an obvious fake.
+  const located = reading({ latitude: 0.5, longitude: -0.5 })
 
   it('tags the reading with the event and adds the position', () => {
     expect(toObservation(located, 'carplay_connect')).toEqual({
@@ -126,8 +126,8 @@ describe('toObservation for a triggered run (atto/6)', () => {
       displayed_range_km: 164,
       odometer_km: 3447,
       trigger_event: 'carplay_connect',
-      latitude: 0,
-      longitude: 0,
+      latitude: 0.5,
+      longitude: -0.5,
     })
   })
 
@@ -136,6 +136,20 @@ describe('toObservation for a triggered run (atto/6)', () => {
     expect(observation).toMatchObject({ trigger_event: 'carplay_disconnect' })
     expect(observation).not.toHaveProperty('latitude')
     expect(observation).not.toHaveProperty('longitude')
+  })
+
+  // atto/21: BYD answers 0, 0 when the car has no GPS fix. That is the placeholder, not a place
+  // (null island is in the Gulf of Guinea), and it showed as "Start: 0.0000, 0.0000" on a trip.
+  it('treats 0, 0 as no fix: it keeps the reading and its tag and sends no position', () => {
+    const observation = toObservation(reading({ latitude: 0, longitude: 0 }), 'carplay_connect')
+    expect(observation).toMatchObject({ trigger_event: 'carplay_connect', soc_pct: 53 })
+    expect(observation).not.toHaveProperty('latitude')
+    expect(observation).not.toHaveProperty('longitude')
+  })
+
+  it('still sends a position with one zero coordinate: the equator and the prime meridian are real places', () => {
+    expect(toObservation(reading({ latitude: 0, longitude: 10 }), 'carplay_connect')).toMatchObject({ latitude: 0, longitude: 10 })
+    expect(toObservation(reading({ latitude: 10, longitude: 0 }), 'carplay_connect')).toMatchObject({ latitude: 10, longitude: 0 })
   })
 
   it('never sends a position for a timer run, whatever the reading holds', () => {

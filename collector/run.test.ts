@@ -158,7 +158,7 @@ describe('runOnce', () => {
 })
 
 describe('runOnce for a triggered run (atto/6)', () => {
-  const located = (overrides: Partial<Reading> = {}) => reading({ latitude: 0, longitude: 0, ...overrides })
+  const located = (overrides: Partial<Reading> = {}) => reading({ latitude: 0.5, longitude: -0.5, ...overrides })
 
   it('asks the reader for the position, tags the reading and sends both', async () => {
     const readCar = vi.fn(async (_withLocation: boolean) => located())
@@ -166,7 +166,7 @@ describe('runOnce for a triggered run (atto/6)', () => {
     await runOnce(deps, { event: 'carplay_connect' })
     expect(readCar).toHaveBeenCalledWith(true)
     expect(sent[0]).toMatchObject({
-      observation: { trigger_event: 'carplay_connect', latitude: 0, longitude: 0, soc_pct: 53 },
+      observation: { trigger_event: 'carplay_connect', latitude: 0.5, longitude: -0.5, soc_pct: 53 },
     })
   })
 
@@ -183,6 +183,18 @@ describe('runOnce for a triggered run (atto/6)', () => {
     await runOnce(deps, { event: 'carplay_disconnect' })
     expect(sent[0]).toMatchObject({ observation: { trigger_event: 'carplay_disconnect' } })
     expect(JSON.stringify(sent)).not.toMatch(/latitude|longitude/)
+  })
+
+  // atto/21: the car had no fix, BYD answered 0, 0 and the trip showed "Start: 0.0000, 0.0000".
+  it('sends the tagged connect reading with no position when the reader answers 0, 0', async () => {
+    const log = vi.fn()
+    const { deps, sent } = setup({ log, readCar: async () => located({ latitude: 0, longitude: 0 }) })
+    await runOnce(deps, { event: 'carplay_connect' })
+    expect(sent[0]).toMatchObject({ observation: { trigger_event: 'carplay_connect', soc_pct: 53 } })
+    expect(JSON.stringify(sent)).not.toMatch(/latitude|longitude/)
+    const lines = log.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(lines).toContain('no position')
+    expect(lines).not.toContain('position read')
   })
 
   it('logs the tag and whether a position was read, never the position', async () => {
