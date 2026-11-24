@@ -1,0 +1,46 @@
+name: Install on homelab
+
+# atto/18: a promotion changes production only from `deploy`, and the BYD collector's production
+# is the homelab checkout ~/repos/atto plus the systemd units in collector/systemd. deploy.yml
+# deploys the Worker on a hosted runner and cannot reach either, so a promotion that changed
+# collector/ reported green while the homelab kept running the old code. This workflow moves that
+# checkout to the promoted SHA and installs every unit (scripts/install-homelab.sh), so the
+# owner's Approve on the promotion is the only step. The units' own one-time setup (the venv and
+# the battery capacity in the drop-in, scripts/owner-steps/77.sh) stays an owner step.
+#
+# It runs on the homelab runner only, on a push to `deploy` or a dispatch from it, never on a pull
+# request or a fork's push: the job changes the owner's user units. A repository-level runner with
+# the self-hosted, homelab and deploy labels must exist; until one does the job stays queued.
+# It holds no secret and reads none: the script touches only $HOME on that host.
+#
+# A push whose head commit carries the skip-CI marker runs no workflow. promote.sh refuses such a
+# commit, and docs/deploy-branch.md says how to replay one with workflow_dispatch.
+
+on:
+  push:
+    branches: [deploy]
+  workflow_dispatch:
+
+concurrency:
+  group: install-homelab-atto1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install the collector on homelab
+    # A dispatch from main (or any other ref) would install unpromoted code. A runner cannot
+    # filter by branch, so this line is the filter.
+    if: github.ref == 'refs/heads/deploy'
+    runs-on: [self-hosted, homelab, deploy]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The script starts with scripts/require-deploy-checkout.sh: it takes the per-host deploy
+      # lock and refuses unless this checkout is exactly what origin/deploy holds.
+      - name: Move the collector checkout and install its units
+        run: bash scripts/install-homelab.sh

@@ -17,8 +17,14 @@ const workflows = readdirSync(workflowDir)
     return { name, text, code: text.replace(/^\s*#.*$/gm, '') }
   })
 
-describe.each(workflows)('.github/workflows/$name', ({ code }) => {
-  it('runs on ubuntu-latest only: no self-hosted runner, no variable that could pick one', () => {
+// The one workflow that may use the homelab runner: it installs the BYD collector on that host
+// (atto/18). A self-hosted job in a public repository is safe only when no fork can start it, so it
+// must trigger on a push to `deploy` or a dispatch and nothing else (argus-config trunk-readiness
+// point 5), and hold no secret.
+const HOMELAB_WORKFLOW = 'install-homelab.yml'
+
+describe.each(workflows)('.github/workflows/$name', ({ name, code }) => {
+  it.skipIf(name === HOMELAB_WORKFLOW)('runs on ubuntu-latest only: no self-hosted runner, no variable that could pick one', () => {
     const runsOn = [...code.matchAll(/^\s*runs-on:\s*(.+)$/gm)].map((match) => match[1].trim())
     expect(runsOn.length).toBeGreaterThan(0)
     expect(runsOn.filter((value) => value !== 'ubuntu-latest')).toEqual([])
@@ -32,6 +38,29 @@ describe.each(workflows)('.github/workflows/$name', ({ code }) => {
   it('uses no action or workflow from a private repository of the owner', () => {
     const uses = [...code.matchAll(/uses:\s*([^\s#]+)/g)].map((match) => match[1])
     expect(uses.filter((value) => value.startsWith('deanjstone/'))).toEqual([])
+  })
+})
+
+describe(`.github/workflows/${HOMELAB_WORKFLOW}, the one self-hosted job`, () => {
+  const homelab = workflows.find(({ name }) => name === HOMELAB_WORKFLOW)!
+
+  it('exists and uses the homelab runner for the install job only', () => {
+    expect(homelab).toBeDefined()
+    const runsOn = [...homelab.code.matchAll(/^\s*runs-on:\s*(.+)$/gm)].map((match) => match[1].trim())
+    expect(runsOn).toEqual(['[self-hosted, homelab, deploy]'])
+    expect(homelab.code).not.toMatch(/CI_RUNS_ON|runner\.environment/)
+  })
+
+  it('no other workflow names a self-hosted runner', () => {
+    expect(workflows.filter(({ name, code }) => name !== HOMELAB_WORKFLOW && /self-hosted/.test(code))).toEqual([])
+  })
+
+  it('triggers only on a push to deploy or a dispatch, and holds no secret', () => {
+    const triggers = homelab.code.match(/^on:\n((?: {2,}.*\n|\n)+)/m)?.[1] ?? ''
+    expect([...triggers.matchAll(/^ {2}([a-z_]+):/gm)].map((match) => match[1])).toEqual(['push', 'workflow_dispatch'])
+    expect(triggers).toMatch(/branches: \[deploy\]/)
+    expect(homelab.code).not.toMatch(/secrets\./)
+    expect(homelab.code).toMatch(/permissions:\s*\n\s+contents: read/)
   })
 })
 
