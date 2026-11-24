@@ -120,7 +120,7 @@ card on the dashboard then shows the trip in progress; it completes when the dis
 | Phone gets 401 | The Worker does not know the token: `ATTO_TRIGGER_CLIENT_ID` is empty or wrong in the deployed Worker (step 2, then a promotion). |
 | Phone gets 403 | The token reached the Worker but is the collector's, or the path is wrong. The phone token reaches `/api/collect/trigger` only. |
 | Phone gets 415 or 422 | The body is not JSON, or `event` is not exactly `carplay_connect` or `carplay_disconnect`. |
-| A trip shows no position | The GPS read failed (`no position` in the log), or the car was asleep or offline; the reading is still stored and the trip still counts. |
+| A trip shows `Start: unknown` (or `End: unknown`) | The GPS read failed or the car had no fix (`no position` in the log; BYD answers 0, 0 for no fix, which is never stored as a place, atto/21), or the car was asleep or offline; the reading is still stored and the trip still counts. |
 | A trip never completes | The disconnect Shortcut did not run, or its reading failed. A connect followed by another connect starts a new trip; a lone disconnect is skipped. |
 | `waiting` in the log | Another run was under two minutes ago. The trigger stays pending and is picked up on a later tick. |
 
