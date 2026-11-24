@@ -81,6 +81,7 @@ describe('read-byd.py', () => {
 // carries a unit string, a number, an enum-like value and BYD's -1 "unknown".
 describe('read-byd.py --audit', () => {
   const STUB = `
+import datetime
 import enum
 import os
 
@@ -95,11 +96,11 @@ class Unit(enum.IntEnum):
 
 class Realtime:
     model_fields = {"elec_percent": 1, "endurance_mileage_unit": 1, "charge_state": 1, "cabin_temp": 1, "gear": 1, "raw": 1}
-    elec_percent = 53
+    elec_percent = 0 if os.environ.get("STUB_EMPTY") == "all" else 53
     online_state = Unit.on
-    timestamp = None
-    endurance_mileage = 164
-    total_mileage = 3447
+    timestamp = None if os.environ.get("STUB_EMPTY") in ("all", "no-timestamp") else datetime.datetime(2026, 11, 7, 1, 0, tzinfo=datetime.timezone.utc)
+    endurance_mileage = 0 if os.environ.get("STUB_EMPTY") == "all" else 164
+    total_mileage = 0 if os.environ.get("STUB_EMPTY") == "all" else 3447
     endurance_mileage_unit = "km"
     charge_state = Unit.on
     cabin_temp = -1
@@ -124,6 +125,9 @@ class BydClient:
     async def __aexit__(self, *exc): return None
     async def get_vehicles(self): return [Vehicle()]
     async def get_vehicle_realtime(self, vin):
+        import sys
+        if os.environ.get("STUB_COUNT"):
+            print("REALTIME-CALLED", file=sys.stderr)
         if os.environ.get("STUB_REALTIME_REFUSED"):
             raise BydEndpointNotSupportedError(
                 f"/vehicleInfo/vehicle/vehicleRealTimeRequest not supported for VIN {vin} (code=1001)"
@@ -187,6 +191,39 @@ class BydConfig:
     expect(result.stderr).toContain('pybyd')
     expect(result.stderr).not.toContain('Traceback')
     expect(result.stderr).not.toContain('STUBVIN')
+  })
+
+  // atto/20: BYD answered with a placeholder (no timestamp, 0% / 0 km / odometer 0) the moment the
+  // charger stopped. The reader re-polls and, when it stays empty, fails instead of printing it.
+  describe('an empty realtime (atto/20)', () => {
+    const fast = { ATTO1_EMPTY_RETRY_SECONDS: '0' }
+
+    it('exits non-zero with "the car sent an empty reading" and prints no reading', () => {
+      const result = run([], { ...fast, STUB_EMPTY: 'all' })
+      expect(result.status).not.toBe(0)
+      expect(result.stdout).toBe('')
+      expect(result.stderr).toContain('the car sent an empty reading')
+      expect(result.stderr).not.toContain('Traceback')
+      expect(result.stderr).not.toContain('STUBVIN')
+    })
+
+    it('treats a missing timestamp alone as not ready', () => {
+      const result = run([], { ...fast, STUB_EMPTY: 'no-timestamp' })
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('the car sent an empty reading')
+    })
+
+    it('polls the realtime three times before giving up', () => {
+      const result = run([], { ...fast, STUB_EMPTY: 'all', STUB_COUNT: '1' })
+      expect(result.stderr.match(/REALTIME-CALLED/g)).toHaveLength(3)
+    })
+
+    it('prints a real reading on the first poll', () => {
+      const result = run([], { ...fast, STUB_COUNT: '1' })
+      expect(result.status).toBe(0)
+      expect(result.stderr.match(/REALTIME-CALLED/g)).toHaveLength(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ soc_pct: 53, observed_at: '2026-11-07T01:00:00.000Z' })
+    })
   })
 
   describe('the position (atto/6)', () => {

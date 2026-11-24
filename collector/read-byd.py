@@ -49,6 +49,19 @@ NEW_ACCOUNT_CODE = "3008"
 NOT_SUPPORTED_CODE = "1001"
 
 
+# BYD answers a placeholder realtime when the car's data is not ready: no timestamp, and charge,
+# range and odometer all 0 (24 Nov 2026, atto/20, at the moment the charger stopped). It is not
+# a reading. The reader polls again a few seconds later and, if the car still sends nothing, fails.
+EMPTY_READING_POLLS = 3
+EMPTY_READING_WAIT_SECONDS = float(os.environ.get("ATTO1_EMPTY_RETRY_SECONDS") or 5)
+
+
+def is_empty_reading(reading):
+    return reading["observed_at"] is None or (
+        reading["soc_pct"] == 0 and reading["range_km"] == 0 and reading["odometer_km"] == 0
+    )
+
+
 def as_number(value):
     """A pybyd value as a plain number, or None for missing, for BYD's -1 'unknown' and for
     anything that is not a number or an enum (unit strings such as 'km', timestamps)."""
@@ -100,17 +113,20 @@ async def main(audit, with_location):
         if vehicle is None:
             raise SystemExit("the account has no vehicle (is the car authorised to it?)")
 
-        try:
-            realtime = await client.get_vehicle_realtime(vehicle.vin)
-        except BydEndpointNotSupportedError as error:
-            raise SystemExit(
-                f"BYD refused the realtime read with code {error.code or NOT_SUPPORTED_CODE} (endpoint not "
-                "supported for this vehicle). The usual cause is the car being shared to this second account: "
-                "since 12 Nov 2026 BYD refuses a shared (guest) account unless pybyd declares it, which needs "
-                "pybyd 0.0.80 or later (re-run scripts/owner-steps/77.sh to update the pin). If the venv is "
-                "already on 0.0.80 or later, the account's grant may exclude live vehicle data: run "
-                "read-byd.py --audit with the owner's approval and check the granted scopes."
-            )
+        async def read_realtime():
+            try:
+                return await client.get_vehicle_realtime(vehicle.vin)
+            except BydEndpointNotSupportedError as error:
+                raise SystemExit(
+                    f"BYD refused the realtime read with code {error.code or NOT_SUPPORTED_CODE} (endpoint not "
+                    "supported for this vehicle). The usual cause is the car being shared to this second account: "
+                    "since 12 Nov 2026 BYD refuses a shared (guest) account unless pybyd declares it, which needs "
+                    "pybyd 0.0.80 or later (re-run scripts/owner-steps/77.sh to update the pin). If the venv is "
+                    "already on 0.0.80 or later, the account's grant may exclude live vehicle data: run "
+                    "read-byd.py --audit with the owner's approval and check the granted scopes."
+                )
+
+        realtime = await read_realtime()
 
         if audit:
             populated = {
@@ -130,16 +146,26 @@ async def main(audit, with_location):
             )
             return
 
-        reading = {
-            "vin": vehicle.vin,
-            "model_name": vehicle.model_name or None,
-            "online": int(realtime.online_state) == 1,
-            "observed_at": as_iso(realtime.timestamp),
-            "soc_pct": as_number(realtime.elec_percent),
-            "range_km": as_number(realtime.endurance_mileage),
-            "odometer_km": as_number(realtime.total_mileage),
-            "charge_state": as_number(realtime.charge_state),
-        }
+        def to_reading(realtime):
+            return {
+                "vin": vehicle.vin,
+                "model_name": vehicle.model_name or None,
+                "online": int(realtime.online_state) == 1,
+                "observed_at": as_iso(realtime.timestamp),
+                "soc_pct": as_number(realtime.elec_percent),
+                "range_km": as_number(realtime.endurance_mileage),
+                "odometer_km": as_number(realtime.total_mileage),
+                "charge_state": as_number(realtime.charge_state),
+            }
+
+        reading = to_reading(realtime)
+        for _ in range(EMPTY_READING_POLLS - 1):
+            if not is_empty_reading(reading):
+                break
+            await asyncio.sleep(EMPTY_READING_WAIT_SECONDS)
+            reading = to_reading(await read_realtime())
+        if is_empty_reading(reading):
+            raise SystemExit("the car sent an empty reading")
         if with_location:
             try:
                 gps = await client.get_gps_info(vehicle.vin)
