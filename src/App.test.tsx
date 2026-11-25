@@ -5,8 +5,15 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { useThemePreference } from './hooks/use-theme-preference'
 import { ApiError, SessionEndedError, type ApiClient, type Identity } from './lib/api'
 import type { DashboardResult } from './lib/dashboard/types'
+
+// Wraps the real hook so a test can read the options App passes it.
+vi.mock('./hooks/use-theme-preference', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./hooks/use-theme-preference')>()
+  return { ...actual, useThemePreference: vi.fn(actual.useThemePreference) }
+})
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -60,6 +67,14 @@ function dashboardHeading() {
 function signOutLink() {
   return [...container.querySelectorAll('a')].find((link) => /sign out/i.test(link.textContent ?? ''))
 }
+
+describe('theme preference', () => {
+  it('shares the theme cookie across the myargus apps, on the registry cookie domain', async () => {
+    await render(fakeApi().api)
+
+    expect(useThemePreference).toHaveBeenCalledWith({ cookieDomain: '.myargus.cc' })
+  })
+})
 
 describe('signed-in gate', () => {
   it('shows nothing, and loads nothing, until the session is known', async () => {

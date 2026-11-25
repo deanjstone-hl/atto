@@ -6,6 +6,7 @@ import type { Entry } from '@/components/entry/entry'
 import { useSession } from '@/hooks/use-session'
 import { useThemePreference } from '@/hooks/use-theme-preference'
 import type { ApiClient } from '@/lib/api'
+import { COOKIE_DOMAIN } from '@/lib/links'
 import { useState } from 'react'
 
 // Cloudflare Access signs the user in before this page is served, and the Worker
@@ -16,8 +17,8 @@ function App({ api }: { api: ApiClient }) {
   const session = useSession(api)
   const [entry, setEntry] = useState<Entry | null>(null)
   // No theme picker yet, so this only keeps a System preference live when the OS
-  // flips light/dark. The cookie domain (.myargus.cc) is set once atto1 ships there (#49).
-  useThemePreference()
+  // flips light/dark. The cookie domain is the links registry's, shared across the myargus apps.
+  useThemePreference({ cookieDomain: COOKIE_DOMAIN })
 
   if (session.status === 'loading') {
     return <main className="min-h-svh" aria-busy="true" aria-label="Checking sign-in" />
