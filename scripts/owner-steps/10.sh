@@ -39,7 +39,9 @@ set -euo pipefail
 REPO="${ATTO_REPO:-deanjstone/atto}"
 SOURCE_PROJECT="${ATTO_BWS_SOURCE_PROJECT:-personal-machine-secrets}"
 DEST_PROJECT="${ATTO_BWS_PROJECT:-actions}"
-BW_HELPER="${ATTO_BW_HELPER:-$HOME/repos/argus-config/envs/wsl2/bashrc.d/bitwarden.sh}"
+# The config repo is being renamed argus-config -> config: prefer ~/repos/config, fall back to the old path.
+BW_HELPER="${ATTO_BW_HELPER:-$HOME/repos/config/envs/wsl2/bashrc.d/bitwarden.sh}"
+[[ -n "${ATTO_BW_HELPER:-}" || -f "$BW_HELPER" ]] || BW_HELPER="$HOME/repos/argus-config/envs/wsl2/bashrc.d/bitwarden.sh"
 READ_BW_ITEM="${ATTO_ACTIONS_READ_BW_ITEM:-}"
 WORKFLOW="${ATTO_WORKFLOW:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.github/workflows/deploy.yml}"
 

@@ -51,7 +51,9 @@ BW_ITEM="atto1 CarPlay trigger (Access service token)"
 REPO="${ATTO1_GH_REPO:-deanjstone/atto}"
 SECRET_KEY="ATTO_TRIGGER_CLIENT_ID"
 PROJECT_NAME="${ATTO1_BWS_PROJECT:-personal-machine-secrets}"
-BW_HELPER="${ATTO1_BW_HELPER:-$HOME/repos/argus-config/envs/wsl2/bashrc.d/bitwarden.sh}"
+# The config repo is being renamed argus-config -> config: prefer ~/repos/config, fall back to the old path.
+BW_HELPER="${ATTO1_BW_HELPER:-$HOME/repos/config/envs/wsl2/bashrc.d/bitwarden.sh}"
+[[ -n "${ATTO1_BW_HELPER:-}" || -f "$BW_HELPER" ]] || BW_HELPER="$HOME/repos/argus-config/envs/wsl2/bashrc.d/bitwarden.sh"
 
 # Cloudflare permission group ids (account scope), from GET /user/tokens/permission_groups.
 PG_APPS_WRITE="1e13c5124ca64b72b1969a67e8829049"   # Access: Apps and Policies Write
