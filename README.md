@@ -20,7 +20,10 @@ repository `atto1`, which is archived.
   request, reads D1 and adds rows to it (`worker/writes.ts`). It also serves the built app, and
   one path (`POST /api/ingest/byd`) for the BYD collector's service token, and the CarPlay trigger
   endpoints: `POST /api/collect/trigger` for the phone's own service token, `GET /api/collect/pending`
-  and `POST /api/collect/ack` for the collector's.
+  and `POST /api/collect/ack` for the collector's. While a charge is open the collector sends its
+  progress with each poll (`open_charging_session`, table `charge_progress`) and
+  `GET /api/dashboard` returns it as `chargeInProgress`; the "Charging now" row waits on the UI SDK
+  map ([frontend/231](https://github.com/deanjstone/frontend/issues/231)).
 - **UI:** a dashboard (vehicle status, recent charging sessions, key specs, range trend and
   trips paired from CarPlay connect and disconnect readings; for the vehicle with the latest
   reading) in

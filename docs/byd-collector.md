@@ -22,7 +22,12 @@ Every 30 minutes a systemd timer on the homelab runs `collector/run.ts` once:
    nothing else.
 2. `collector/map.ts` turns that into a `range_observations` row, `collector/sessions.ts` works
    out a `charging_sessions` row when a charge has ended, and `collector/run.ts` posts both to
-   `POST /api/ingest/byd` with the `atto1-ingest` service token.
+   `POST /api/ingest/byd` with the `atto1-ingest` service token. While a charge is open, each
+   poll also carries it as `open_charging_session` (start time, state of charge at the start and
+   now, kWh so far), which the Worker stores in `charge_progress` (migration `0003`, one
+   insert-only row per poll) and the dashboard API returns as `chargeInProgress` (atto/19). A
+   finished charge still lands once, as a `charging_sessions` row; the open row is hidden from
+   then on. The "Charging now" row on the dashboard itself waits for the UI SDK map.
 3. It writes `~/.local/state/atto1-collector/state.json` (the last poll time and any open
    charge), only after the Worker accepted the post. A refused poll is read again next run.
 
