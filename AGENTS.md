@@ -59,7 +59,7 @@ EV tracking app — planned features: charging sessions, range, vehicle specs, m
 
 - `src/lib/api.ts` is the browser's only data-access entry point; it calls the Worker. The Worker (`worker/index.ts`) verifies the Cloudflare Access token before anything else (`worker/access.ts`) and every D1 query binds the caller's `user_id`; that is the authorisation. Never serve a route that skips `verifyAccess`, and never add a bypass flag for local development.
 - Tailwind v4 uses CSS-first config (`src/index.css`), not a JS config file. Add design tokens via `@theme` blocks in CSS.
-- `src/components/ui/` is vendored from the `deanjstone/design-system` shadcn registry, pinned to a release tag as `@design-system` in `components.json`. Pull or update a component with `pnpm exec shadcn add @design-system/<name>`; bump the tag there to move to a newer release.
+- `src/components/ui/` is vendored from the `deanjstone-hl/frontend` shadcn registry (the `@design-system` namespace in `components.json`), pinned to a release tag as `@design-system` in `components.json`. Pull or update a component with `pnpm exec shadcn add @design-system/<name>`; bump the tag there to move to a newer release.
 - No router installed yet. When adding routing, prefer React Router v7.
 
 **Package manager:** pnpm. Never use npm or yarn. Read `.claude/SYSTEM.md` before making structural changes.

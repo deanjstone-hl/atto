@@ -16,7 +16,7 @@ export default defineConfig({
   },
   overrides: [
     {
-      // Vendored from deanjstone/design-system via the shadcn CLI: upstream's shape, not ours,
+      // Vendored from deanjstone-hl/frontend via the shadcn CLI: upstream's shape, not ours,
       // and a local edit is lost on the next `shadcn add`. shadcn components export their cva
       // variants alongside the component (`buttonVariants`), which only-export-components rejects.
       files: ["src/components/ui/**/*.{ts,tsx}"],

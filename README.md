@@ -38,7 +38,7 @@ repository `atto1`, which is archived.
 
 Vite 8, React 19, TypeScript 6, Tailwind CSS v4 (CSS-first config in `src/index.css`), a Cloudflare
 Worker over D1, and UI components from the
-[`deanjstone/design-system`](https://github.com/deanjstone/design-system) shadcn registry.
+[`deanjstone-hl/frontend`](https://github.com/deanjstone-hl/frontend) shadcn registry.
 
 ## Prerequisites
 
@@ -98,7 +98,7 @@ vehicle when it has none (it fills the VIN in, never the nickname), else it make
 | `BYD_USERNAME`, `BYD_PASSWORD` | The second account's login; else read from Bitwarden Secrets Manager as `atto1-byd-username` and `atto1-byd-password` |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | The `atto1-ingest` service token; else `atto1-ingest-client-id` and `atto1-ingest-client-secret` |
 | `ATTO1_BATTERY_KWH` | Pack capacity in kWh; without it charging sessions are not recorded |
-| `ATTO1_URL`, `ATTO1_NICKNAME`, `ATTO1_PYTHON`, `ATTO1_VIN` | Optional: Worker URL (default `https://atto1.myargus.cc`), vehicle name (default `ATTO 1`), the Python with pybyd, which vehicle to read |
+| `ATTO1_URL`, `ATTO1_NICKNAME`, `ATTO1_PYTHON`, `ATTO1_VIN` | Optional: the Worker's origin, `http(s)://host[:port]` with no path (default: the `atto1` entry of `links.json`, `https://atto1.myargus.cc`), vehicle name (default `ATTO 1`), the Python with pybyd, which vehicle to read |
 | `ATTO1_BYD_BASE_URL`, `ATTO1_BYD_COUNTRY` | Optional: the BYD regional node for an account registered outside Australia (default `https://dilinkappoversea-au.byd.auto`, `AU`). A `code=3008` refusal on a new account usually means it has not been signed in to once in the BYD phone app |
 
 ```bash
@@ -144,6 +144,8 @@ Amendment 2. The unit installs with the promotion (`install-homelab.yml`).
 | `pnpm run deploy` | Build, render `wrangler.deploy.jsonc` from BWS and deploy the Worker: owner only, from a checkout of `deploy` |
 | `node scripts/render-wrangler.ts` | Write `wrangler.deploy.jsonc` from `wrangler.jsonc` and BWS (see Private values) |
 | `bash scripts/scrub-scan.sh` | gitleaks plus the personal-data rules over the tracked and new files; `--head` scans HEAD |
+| `bash scripts/link-check.sh` | Bans hand-written `myargus.cc` and tailnet host literals in code, fails on retired hosts, and checks wrangler routes and the vendored `links.json` against the frontend registry (frontend ADR-0004). Blocking in CI (`.github/workflows/link-check.yml`); `--mode report` prints the findings and exits 0. Paths it skips are listed in `.link-check-ignore` |
+| `bash scripts/links.sh url atto1` | Build a URL from `links.json` in a script (the bash twin of `src/lib/links.ts`) |
 
 ## Deploy
 
@@ -192,10 +194,12 @@ The release scripts in `scripts/ci/` (`release-with-retry.sh`, `release-proof.sh
 | Path | Contents |
 |---|---|
 | `src/components/dashboard/` | Dashboard UI |
-| `src/components/ui/` | Components vendored from the design-system registry |
+| `src/components/ui/` | Components vendored from the frontend registry |
 | `src/lib/dashboard/` | Dashboard data shaping and the API response types |
 | `src/lib/api.ts` | The thin client for the Worker's API |
 | `src/lib/data-model/` | TypeScript types and validation mirroring the schema |
+| `links.json`, `src/lib/links.ts`, `src/lib/links-core.ts`, `scripts/links.sh`, `scripts/link-check*` | The links registry and `link-check`, vendored from the frontend registry (`pnpm exec shadcn add -o @design-system/links-data @design-system/links @design-system/links-sh @design-system/link-check`); never edited here. Build every `myargus.cc` URL and the cookie domain from them, not by hand |
+| `collector/links.ts` | The Worker's URL for the collector, from `links.json` (plain Node cannot resolve the `@/` alias in `src/lib/links.ts`) |
 | `migrations/` | D1 schema |
 | `worker/` | The Worker (Access check, API) and its tests, including the schema tests |
 | `wrangler.jsonc` | Worker, assets, D1 binding and Access settings, with BWS placeholders for the private values |
