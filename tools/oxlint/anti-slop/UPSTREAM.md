@@ -1,20 +1,25 @@
-# Vendored anti-slop (4-rule subset)
+# Vendored anti-slop (9-rule subset)
 
-Source: [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop), commit `13909c9e07590f5a85d93c62712259fe14a883f7` (plugin 0.1.2). Upstream has no npm package and says to vendor.
+Source: [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop), commit `63dbb09f73438e550a6991dc6d778f979ffbf183` (plugin 0.1.2). Upstream has no npm package and says to vendor.
 
 Licence: MIT, Copyright (c) 2026 Dillon Mulroy. `LICENSE` is retained verbatim.
 
 Copied files (from `src/`, byte-identical to upstream):
 
 - `rules/no-chained-type-assertions.ts`
-- `rules/no-widen-then-assert.ts`
 - `rules/no-conditional-empty-object-spread.ts`
 - `rules/no-module-mocking.ts`
-- `shared/scope.ts`
+- `rules/no-object-parameters.ts`
+- `rules/no-reduce-accumulator-copy.ts`
+- `rules/no-reflect-apply.ts`
+- `rules/no-reflect-get.ts`
+- `rules/no-unknown-type-aliases.ts`
+- `rules/no-widen-then-assert.ts`
+- `shared/array-method.ts`, `shared/function-parameters.ts`, `shared/lexical-type-parameters.ts`, `shared/reflect-method.ts`, `shared/scope.ts`, `shared/type-alias-resolution.ts`
 
 ## Local adaptations
 
-- `index.ts` is trimmed to register only these four rules; upstream registers 18. The other 14 rules and `effect/`, `vendor/eslint-stylistic/` are not vendored.
+- `index.ts` is trimmed to register only these nine rules; upstream registers 18. The other nine rules and `effect/`, `vendor/eslint-stylistic/` are not vendored.
 
 ## Runtime dependency
 
