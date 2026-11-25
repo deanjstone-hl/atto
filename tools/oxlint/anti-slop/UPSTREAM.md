@@ -27,8 +27,8 @@ Copied files (from `src/`, byte-identical to upstream):
 
 ## Updating
 
-There is no update path. To bump, diff the five files against a new upstream revision, port the changes, and update the SHA here.
+Do not edit these files here. The canonical copy is `tools/anti-slop/` in argus-config; run its `scripts/anti-slop-sync.sh <this-worktree>` to bring this directory up to date. argus-config's CI (Anti-slop drift) fails when this copy differs from the canonical one. How to bump: argus-config `docs/reference/anti-slop.md`.
 
 ## Wiring
 
-`oxlint.config.ts` at the repo root: three rules at `error`, `no-module-mocking` at `warn` for test files via `overrides`. This directory is in `ignorePatterns`.
+`oxlint.config.ts` at the repo root: `no-chained-type-assertions`, `no-widen-then-assert`, `no-conditional-empty-object-spread`, `no-reflect-apply`, `no-reflect-get`, `no-unknown-type-aliases` and `no-reduce-accumulator-copy` at `error`, `no-object-parameters` at `warn`, and `no-module-mocking` at `warn` for test files via `overrides`. This directory is in `ignorePatterns`.
