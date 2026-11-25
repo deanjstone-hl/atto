@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { isChargeEvent, isTriggerEvent, type ChargeEvent, type ReadingEvent } from '../worker/trigger-events.ts'
 import { fileLastRun } from './last-run.ts'
+import { workerUrl } from './links.ts'
 import { isEmptyReading, parseReading, toObservation, toVehicle, type Reading } from './map.ts'
 import { loadSecrets, type Exec } from './secrets.ts'
 import { advance, emptyState, type SessionState } from './sessions.ts'
@@ -203,7 +204,7 @@ export async function createRunDeps(env: NodeJS.ProcessEnv): Promise<RunDeps> {
     post: (payload) =>
       postIngest(
         {
-          baseUrl: env.ATTO1_URL ?? 'https://atto1.myargus.cc',
+          baseUrl: workerUrl(env),
           clientId: secrets.clientId,
           clientSecret: secrets.clientSecret,
         },

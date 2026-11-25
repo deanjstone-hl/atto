@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { isTriggerEvent, type TriggerEvent } from '../worker/trigger-events.ts'
 import { fileAttempts, type Attempts } from './attempts.ts'
 import { fileLastRun } from './last-run.ts'
+import { workerUrl } from './links.ts'
 import {
   createRunDeps,
   exec,
@@ -167,7 +168,7 @@ async function main(): Promise<void> {
   // Only the collector token: the BYD login is read when a run actually starts.
   const { clientId, clientSecret } = await loadSecrets(env, exec, ['clientId', 'clientSecret'])
   const target: IngestTarget = {
-    baseUrl: env.ATTO1_URL ?? 'https://atto1.myargus.cc',
+    baseUrl: workerUrl(env),
     clientId,
     clientSecret,
   }
