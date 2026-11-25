@@ -5,9 +5,8 @@ name: Link check
 # repo's host and path config against links.json. Shipped by the frontend
 # `link-check` registry item (ADR-0004).
 #
-# LINK_CHECK_MODE starts at `report`: the job prints every finding and passes,
-# which is the baseline (decision 10). Change it to `block` once the report
-# reads 0, and the job fails on any finding from then on.
+# LINK_CHECK_MODE is `block`: the job fails on any finding. It started at `report`
+# (the baseline, decision 10) and flipped when this repo's report read 0 (atto/14).
 
 on:
   pull_request:
@@ -27,7 +26,7 @@ jobs:
     name: Link check
     runs-on: ubuntu-latest
     env:
-      LINK_CHECK_MODE: report
+      LINK_CHECK_MODE: block
     steps:
       - uses: actions/checkout@v4
 
