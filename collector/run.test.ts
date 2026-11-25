@@ -90,6 +90,54 @@ describe('runOnce', () => {
     expect(saved()?.open).toBeNull()
   })
 
+  describe('the charge in progress (atto/19)', () => {
+    const midCharge: SessionState = {
+      lastAt: '2026-11-07T00:30:00.000Z',
+      open: { startedAt: '2026-11-06T22:00:00.000Z', startSoc: 20, lastAt: '2026-11-07T00:30:00.000Z', lastSoc: 60, odometerKm: 3447 },
+    }
+
+    it('sends the open session beside the reading while the car is charging', async () => {
+      const { deps, sent } = setup({ readCar: async () => reading({ soc_pct: 70, charge_state: 1 }) }, midCharge)
+      await runOnce(deps)
+      expect(sent[0]).toMatchObject({
+        open_charging_session: {
+          started_at: '2026-11-06T22:00:00.000Z',
+          observed_at: '2026-11-07T01:00:00.000Z',
+          start_soc_pct: 20,
+          soc_pct: 70,
+          energy_kwh: 15,
+        },
+      })
+      expect(sent[0]).not.toHaveProperty('charging_session')
+    })
+
+    it('sends it on the poll that opens the session', async () => {
+      const { deps, sent } = setup({ readCar: async () => reading({ charge_state: 1 }) })
+      await runOnce(deps)
+      expect(sent[0]).toMatchObject({ open_charging_session: { start_soc_pct: 53, soc_pct: 53, energy_kwh: 0 } })
+    })
+
+    it('sends the finished session once and no open one on the poll that ends the charge', async () => {
+      const { deps, sent } = setup({ readCar: async () => reading({ soc_pct: 70, charge_state: 15 }) }, midCharge)
+      await runOnce(deps)
+      expect(sent[0]).toHaveProperty('charging_session')
+      expect(sent[0]).not.toHaveProperty('open_charging_session')
+    })
+
+    it('sends none when the car is not charging', async () => {
+      const { deps, sent } = setup()
+      await runOnce(deps)
+      expect(sent[0]).not.toHaveProperty('open_charging_session')
+    })
+
+    it('says in the log that a charge is in progress, without any position', async () => {
+      const log = vi.fn()
+      const { deps } = setup({ log, readCar: async () => reading({ soc_pct: 70, charge_state: 1 }) }, midCharge)
+      await runOnce(deps)
+      expect(log).toHaveBeenCalledWith(expect.stringMatching(/, charge in progress since 2026-11-06T22:00:00\.000Z$/))
+    })
+  })
+
   it('treats charge_state 1 as charging and opens a session', async () => {
     const { deps, saved } = setup({ readCar: async () => reading({ charge_state: 1 }) })
     await runOnce(deps)

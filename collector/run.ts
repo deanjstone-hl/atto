@@ -11,7 +11,7 @@ import { fileLastRun } from './last-run.ts'
 import { workerUrl } from './links.ts'
 import { isEmptyReading, parseReading, toObservation, toVehicle, type Reading } from './map.ts'
 import { loadSecrets, type Exec } from './secrets.ts'
-import { advance, emptyState, type SessionState } from './sessions.ts'
+import { advance, emptyState, openProgress, type SessionState } from './sessions.ts'
 
 const CHARGING = 1
 
@@ -64,6 +64,10 @@ export async function runOnce(deps: RunDeps, options: RunOptions = {}): Promise<
 
   const payload: Record<string, unknown> = { vehicle: toVehicle(reading, deps.config), observation }
   if (next.session) payload.charging_session = next.session
+  // The charge still going, so the dashboard shows it before it ends (atto/19). A finished one is
+  // sent once, above, as before: the Worker keeps the two apart.
+  const progress = openProgress(next.state, deps.config.batteryKwh)
+  if (progress) payload.open_charging_session = progress
 
   const { status } = await deps.post(payload)
   if (status < 200 || status >= 300) throw new Error(`the Worker answered ${status}; the poll was not recorded`)
@@ -78,7 +82,8 @@ export async function runOnce(deps: RunDeps, options: RunOptions = {}): Promise<
         ? ''
         : `, tagged ${event}` +
           (isTriggerEvent(event) ? `, ${observation.latitude === undefined ? 'no position' : 'position read'}` : '')) +
-      (next.session ? `, and a ${next.session.energy_kwh} kWh charging session` : ''),
+      (next.session ? `, and a ${next.session.energy_kwh} kWh charging session` : '') +
+      (progress ? `, charge in progress since ${progress.started_at}` : ''),
   )
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { advance, emptyState, type Sample, type SessionState } from './sessions.ts'
+import { advance, emptyState, openProgress, type Sample, type SessionState } from './sessions.ts'
 
 const options: { batteryKwh: number | null } = { batteryKwh: 30 }
 const at = (minutes: number) => new Date(Date.UTC(2026, 10, 7, 0, 0) + minutes * 60_000).toISOString()
@@ -134,5 +134,42 @@ describe('charging sessions from polls', () => {
       const { sessions } = feed([sample(0, 20, true), sample(60, 50, true), sample(120, 48, false)])
       expect(sessions[0]).toMatchObject({ ended_at: at(120), end_soc_pct: 50 })
     })
+  })
+})
+
+describe('the charge in progress', () => {
+  it('is nothing while no session is open', () => {
+    expect(openProgress(emptyState(), 30)).toBeNull()
+    expect(openProgress(feed([sample(0, 50, false)]).state, 30)).toBeNull()
+  })
+
+  it('reports the start, the latest poll and the energy so far from the open session', () => {
+    const { state } = feed([sample(30, 52, true), sample(60, 60, true)])
+    expect(openProgress(state, 30)).toEqual({
+      started_at: at(30),
+      observed_at: at(60),
+      start_soc_pct: 52,
+      soc_pct: 60,
+      energy_kwh: 2.4,
+    })
+  })
+
+  it('reports zero energy on the poll that opens the session', () => {
+    const { state } = feed([sample(30, 52, true)])
+    expect(openProgress(state, 30)).toMatchObject({ start_soc_pct: 52, soc_pct: 52, energy_kwh: 0 })
+  })
+
+  it('leaves the energy out when the battery capacity is not configured', () => {
+    const { state } = feed([sample(30, 52, true)], { batteryKwh: null })
+    expect(openProgress(state, null)).toEqual({
+      started_at: at(30),
+      observed_at: at(30),
+      start_soc_pct: 52,
+      soc_pct: 52,
+    })
+  })
+
+  it('is nothing once the session has closed', () => {
+    expect(openProgress(feed([sample(30, 52, true), sample(60, 70, false)]).state, 30)).toBeNull()
   })
 })

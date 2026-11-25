@@ -37,7 +37,32 @@ export type ChargingSessionInput = {
   notes: string
 }
 
+// The charge as it stands after the latest poll, sent beside every reading so the dashboard can
+// show it before it ends (atto/19). `energy_kwh` is left out when the battery capacity is unknown.
+export type OpenChargingSessionInput = {
+  started_at: string
+  observed_at: string
+  start_soc_pct: number
+  soc_pct: number
+  energy_kwh?: number
+}
+
 export const emptyState = (): SessionState => ({ lastAt: null, open: null })
+
+export function openProgress(state: SessionState, batteryKwh: number | null): OpenChargingSessionInput | null {
+  const { open } = state
+  if (open === null) return null
+  const startSoc = Math.round(open.startSoc)
+  const soc = Math.max(startSoc, Math.round(open.lastSoc))
+  const progress: OpenChargingSessionInput = {
+    started_at: open.startedAt,
+    observed_at: open.lastAt,
+    start_soc_pct: startSoc,
+    soc_pct: soc,
+  }
+  if (batteryKwh !== null) progress.energy_kwh = Math.round(((soc - startSoc) / 100) * batteryKwh * 100) / 100
+  return progress
+}
 
 const NOTES =
   'From the BYD cloud. Start and end are the first and last polls that saw the charge; ' +
