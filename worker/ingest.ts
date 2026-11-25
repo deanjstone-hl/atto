@@ -1,6 +1,8 @@
 // The ingest endpoint (ADR-006): `POST /api/ingest/byd`, the one path the named Access
 // service token may call. The collector (collector/) posts what it read from the BYD
-// cloud: the vehicle, one reading and, when a charge has just ended, that session.
+// cloud: the vehicle, one reading and, when a charge has just ended, that session; and while a
+// charge is going, its progress so far (`open_charging_session`, atto/19), which the dashboard
+// shows as the charge in progress.
 //
 // Insert-only, like every other write: the vehicle is found by (user_id, VIN), or is the
 // owner's only vehicle when that has no VIN yet (which then gets the VIN, and nothing else),
@@ -15,7 +17,7 @@ import { databaseFailure, failed, insertRow, readObject, validateRow, type Field
 import type { D1Like } from './d1'
 import { json } from './json'
 
-const TOP_LEVEL = ['vehicle', 'observation', 'charging_session']
+const TOP_LEVEL = ['vehicle', 'observation', 'charging_session', 'open_charging_session']
 // A stand-in for the vehicle id, which is only known once the vehicle exists.
 const PENDING_VEHICLE_ID = 'pending'
 
@@ -72,7 +74,10 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
   if ('errors' in vehicle) Object.assign(errors, prefixed('vehicle', vehicle.errors))
   else if (typeof vehicle.values.vin !== 'string') errors['vehicle.vin'] = 'Required'
 
-  const checked = (key: 'observation' | 'charging_session', entity: 'range-observations' | 'charging-sessions') => {
+  const checked = (
+    key: 'observation' | 'charging_session' | 'open_charging_session',
+    entity: 'range-observations' | 'charging-sessions' | 'charge-progress',
+  ) => {
     const input = body[key]
     if (input === undefined) return null
     if (!isObject(input)) {
@@ -88,6 +93,7 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
   }
   const observation = checked('observation', 'range-observations')
   const chargingSession = checked('charging_session', 'charging-sessions')
+  const openSession = checked('open_charging_session', 'charge-progress')
   // BYD's no-fix 0, 0 (atto/21) is no position: the reading and its tag are stored, the pair is not.
   if (
     observation !== null &&
@@ -138,14 +144,19 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
 
     const store = async (
       values: Record<string, unknown> | null,
-      entity: 'range-observations' | 'charging-sessions',
+      entity: 'range-observations' | 'charging-sessions' | 'charge-progress',
       table: string,
       timeColumn: string,
+      // A charge's polls share a start, so a poll is told apart by its start and its time.
+      alsoMatch?: string,
     ): Promise<Part> => {
       if (values === null) return 'none'
       const stored = await db
-        .prepare(`select id from ${table} where user_id = ?1 and vehicle_id = ?2 and ${timeColumn} = ?3`)
-        .bind(ownerId, vehicleId, values[timeColumn])
+        .prepare(
+          `select id from ${table} where user_id = ?1 and vehicle_id = ?2 and ${timeColumn} = ?3` +
+            (alsoMatch === undefined ? '' : ` and ${alsoMatch} = ?4`),
+        )
+        .bind(ownerId, vehicleId, values[timeColumn], ...(alsoMatch === undefined ? [] : [values[alsoMatch]]))
         .first()
       if (stored) return 'duplicate'
       await insertRow(db, ownerId, entity, { ...values, vehicle_id: vehicleId })
@@ -154,9 +165,15 @@ export async function ingestByd(request: Request, db: D1Like, ownerId: string): 
 
     const observationResult = await store(observation, 'range-observations', 'range_observations', 'observed_at')
     const sessionResult = await store(chargingSession, 'charging-sessions', 'charging_sessions', 'started_at')
-    const created = observationResult === 'created' || sessionResult === 'created'
+    const openResult = await store(openSession, 'charge-progress', 'charge_progress', 'observed_at', 'started_at')
+    const created = [observationResult, sessionResult, openResult].includes('created')
     return json(
-      { vehicle_id: vehicleId, observation: observationResult, charging_session: sessionResult },
+      {
+        vehicle_id: vehicleId,
+        observation: observationResult,
+        charging_session: sessionResult,
+        open_charging_session: openResult,
+      },
       created || !existing ? 201 : 200,
     )
   } catch (error) {

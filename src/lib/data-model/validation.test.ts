@@ -9,6 +9,7 @@ import type {
 } from './types'
 import {
   isValid,
+  validateChargeProgress,
   validateChargingSession,
   validateMaintenanceRecord,
   validateNote,
@@ -172,6 +173,35 @@ describe('validateRangeObservation', () => {
     expect(validateRangeObservation({ ...valid, odometer_km: 4120.5 })).toHaveProperty(
       'odometer_km',
     )
+  })
+})
+
+describe('validateChargeProgress (atto/19)', () => {
+  const valid = {
+    vehicle_id: 'v',
+    started_at: '2026-11-23T06:48:00Z',
+    observed_at: '2026-11-23T07:18:00Z',
+    start_soc_pct: 40,
+    soc_pct: 45,
+    energy_kwh: 2.5,
+  }
+
+  it('accepts a poll of the charge, with or without an energy figure', () => {
+    expect(validateChargeProgress(valid)).toEqual({})
+    expect(validateChargeProgress({ ...valid, energy_kwh: null })).toEqual({})
+    expect(validateChargeProgress({ ...valid, observed_at: valid.started_at, soc_pct: 40, energy_kwh: 0 })).toEqual({})
+  })
+
+  it.each([
+    ['started_at', { started_at: 'yesterday' }],
+    ['observed_at', { observed_at: 'now-ish' }],
+    ['observed_at', { observed_at: '2026-11-23T06:00:00Z' }],
+    ['start_soc_pct', { start_soc_pct: 40.5 }],
+    ['soc_pct', { soc_pct: 101 }],
+    ['soc_pct', { start_soc_pct: 50, soc_pct: 45 }],
+    ['energy_kwh', { energy_kwh: -0.1 }],
+  ])('refuses a bad %s', (field, overrides) => {
+    expect(Object.keys(validateChargeProgress({ ...valid, ...overrides }))).toContain(field)
   })
 })
 

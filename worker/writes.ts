@@ -8,6 +8,7 @@
 
 import type { ChargerType, FeatureCategory } from '../src/lib/data-model/types'
 import {
+  validateChargeProgress,
   validateChargingSession,
   validateRangeObservation,
   validateVehicle,
@@ -52,6 +53,8 @@ type Entity = {
   fields: Record<string, Field>
   // Fields only the collector's ingest may set: a signed-in person's POST refuses them.
   ingestOnly?: readonly string[]
+  // Written by the collector's ingest alone: no `POST /api/<name>` route exists for it.
+  internal?: true
   validate: (input: never) => ValidationErrors<never>
   shape?: (row: Record<string, unknown>) => Record<string, unknown>
 }
@@ -112,6 +115,21 @@ export const ENTITIES = {
     // SQLite stores booleans as 0/1; the client gets booleans.
     shape: (row) => ({ ...row, climate_on: row.climate_on === null ? null : row.climate_on === 1 }),
   },
+  // One poll of the charge still going (atto/19), from ingest's `open_charging_session` only.
+  'charge-progress': {
+    table: 'charge_progress',
+    vehicleScoped: true,
+    internal: true,
+    fields: {
+      vehicle_id: vehicleId,
+      started_at: { kind: 'timestamp', required: true },
+      observed_at: { kind: 'timestamp', required: true },
+      start_soc_pct: { kind: 'number', required: true },
+      soc_pct: { kind: 'number', required: true },
+      energy_kwh: { kind: 'number' },
+    },
+    validate: validateChargeProgress,
+  },
   'vehicle-features': {
     table: 'vehicle_features',
     vehicleScoped: true,
@@ -131,7 +149,9 @@ export const ENTITIES = {
 export type EntityName = keyof typeof ENTITIES
 
 export function isEntityName(name: string): name is EntityName {
-  return Object.hasOwn(ENTITIES, name)
+  if (!Object.hasOwn(ENTITIES, name)) return false
+  const entity: Entity = ENTITIES[name as EntityName]
+  return entity.internal !== true
 }
 
 export type Fields = Record<string, string>

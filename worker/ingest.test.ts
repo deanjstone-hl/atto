@@ -52,6 +52,15 @@ const body = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+// The charge in progress the collector sends beside a reading (atto/19).
+const open = {
+  started_at: '2026-11-07T00:30:00Z',
+  observed_at: '2026-11-07T01:00:00Z',
+  start_soc_pct: 40,
+  soc_pct: 50,
+  energy_kwh: 3,
+}
+
 type CallOptions = { claims?: Record<string, unknown>; token?: string | null; method?: string; raw?: string }
 
 async function call(path: string, payload: unknown, options: CallOptions = {}) {
@@ -186,6 +195,7 @@ describe('what ingest writes', () => {
       vehicle_id: rows('vehicles')[0].id,
       observation: 'created',
       charging_session: 'created',
+      open_charging_session: 'none',
     })
   })
 
@@ -399,6 +409,69 @@ describe('an empty or backwards reading (atto/20)', () => {
   })
 })
 
+describe('the charge in progress (atto/19)', () => {
+  it('stores each poll of the open charge, owned by the owner and tied to the vehicle', async () => {
+    const response = await ingest(body({ open_charging_session: open }))
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({ observation: 'created', open_charging_session: 'created' })
+    expect(rows('charge_progress')).toMatchObject([
+      {
+        user_id: ownerSubject,
+        vehicle_id: rows('vehicles')[0].id,
+        started_at: '2026-11-07T00:30:00.000Z',
+        observed_at: '2026-11-07T01:00:00.000Z',
+        start_soc_pct: 40,
+        soc_pct: 50,
+        energy_kwh: 3,
+      },
+    ])
+    expect(rows('charging_sessions')).toEqual([])
+  })
+
+  it('adds a row for the next poll of the same charge', async () => {
+    await ingest(body({ open_charging_session: open }))
+    await ingest(
+      body({
+        observation: { ...reading, observed_at: '2026-11-07T01:30:00Z', soc_pct: 55 },
+        open_charging_session: { ...open, observed_at: '2026-11-07T01:30:00Z', soc_pct: 55, energy_kwh: 4.5 },
+      }),
+    )
+    expect(rows('charge_progress')).toMatchObject([{ soc_pct: 50 }, { soc_pct: 55, energy_kwh: 4.5 }])
+  })
+
+  it('does not add the same poll twice (a retry after a lost response)', async () => {
+    await ingest(body({ open_charging_session: open }))
+    const again = await ingest(body({ open_charging_session: open }))
+    expect(await again.json()).toMatchObject({ observation: 'duplicate', open_charging_session: 'duplicate' })
+    expect(rows('charge_progress')).toHaveLength(1)
+  })
+
+  it('stores a poll with no energy figure', async () => {
+    await ingest(body({ open_charging_session: { ...open, energy_kwh: undefined } }))
+    expect(rows('charge_progress')).toMatchObject([{ energy_kwh: null }])
+  })
+
+  it('stores the finished session once, still, and no progress row on the poll that ends the charge', async () => {
+    await ingest(body({ open_charging_session: open }))
+    const finishing = body({
+      observation: { ...reading, observed_at: '2026-11-07T04:00:00Z', soc_pct: 80 },
+      charging_session: { ...session, started_at: '2026-11-07T00:30:00Z', ended_at: '2026-11-07T04:00:00Z' },
+    })
+    expect(await (await ingest(finishing)).json()).toMatchObject({ charging_session: 'created', open_charging_session: 'none' })
+    expect(await (await ingest(finishing)).json()).toMatchObject({ charging_session: 'duplicate' })
+    expect(rows('charging_sessions')).toHaveLength(1)
+    expect(rows('charge_progress')).toHaveLength(1)
+  })
+
+  it('is refused on its own, with no observation or session, and is not a route a signed-in person can post to', async () => {
+    const alone = await ingest({ vehicle: { vin: VIN, nickname: 'ATTO 1' }, open_charging_session: open })
+    expect(alone.status).toBe(422)
+    const direct = await call('/api/charge-progress', open, { claims: validClaims({ sub: ownerSubject }) })
+    expect(direct.status).toBe(405)
+    expect(rows('charge_progress')).toEqual([])
+  })
+})
+
 describe('what ingest refuses', () => {
   it.each([
     ['a vehicle with no VIN', { vehicle: { nickname: 'ATTO 1' }, observation: reading }],
@@ -412,12 +485,22 @@ describe('what ingest refuses', () => {
     ['a user_id in the vehicle', body({ vehicle: { vin: VIN, nickname: 'ATTO 1', user_id: 'someone' } })],
     ['an unknown top-level field', body({ extra: 1 })],
     ['neither an observation nor a session', { vehicle: { vin: VIN, nickname: 'ATTO 1' } }],
+    ['an open session with no start', body({ open_charging_session: { ...open, started_at: undefined } })],
+    ['an open session below its start charge', body({ open_charging_session: { ...open, start_soc_pct: 60, soc_pct: 50 } })],
+    ['an open session over 100%', body({ open_charging_session: { ...open, soc_pct: 101 } })],
+    ['an open session with a negative energy', body({ open_charging_session: { ...open, energy_kwh: -1 } })],
+    ['an open session polled before it started', body({ open_charging_session: { ...open, observed_at: '2026-11-07T00:00:00Z' } })],
+    ['an open session with a time that has no zone', body({ open_charging_session: { ...open, started_at: '2026-11-07T01:00:00' } })],
+    ['a vehicle_id in the open session', body({ open_charging_session: { ...open, vehicle_id: 'x' } })],
+    ['a user_id in the open session', body({ open_charging_session: { ...open, user_id: 'someone' } })],
+    ['an open session that is not an object', body({ open_charging_session: 'yes' })],
   ])('answers 422 for %s and writes nothing, not even the vehicle', async (_label, payload) => {
     const response = await ingest(payload)
     expect(response.status).toBe(422)
     expect(rows('vehicles')).toEqual([])
     expect(rows('range_observations')).toEqual([])
     expect(rows('charging_sessions')).toEqual([])
+    expect(rows('charge_progress')).toEqual([])
   })
 
   it('answers 415 for a body that is not JSON', async () => {

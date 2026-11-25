@@ -3,6 +3,7 @@
 // authority; keep both in step when either changes.
 
 import type {
+  ChargeProgressInsert,
   ChargingSessionInsert,
   MaintenanceRecordInsert,
   NoteInsert,
@@ -161,6 +162,25 @@ export function validateRangeObservation(
   ) {
     errors.latitude ??= 'A charge reading carries no position'
   }
+  return errors
+}
+
+export function validateChargeProgress(input: ChargeProgressInsert): ValidationErrors<ChargeProgressInsert> {
+  const errors: ValidationErrors<ChargeProgressInsert> = {}
+  const startValid = isTimestamp(input.started_at)
+  if (!startValid) errors.started_at = 'Start time is not a valid date/time'
+  if (!isTimestamp(input.observed_at)) {
+    errors.observed_at = 'Poll time is not a valid date/time'
+  } else if (startValid && Date.parse(input.observed_at) < Date.parse(input.started_at)) {
+    errors.observed_at = 'Poll time cannot be before the start time'
+  }
+  if (!isPercentage(input.start_soc_pct)) errors.start_soc_pct = 'Start charge must be a whole percentage, 0-100'
+  if (!isPercentage(input.soc_pct)) {
+    errors.soc_pct = 'Charge must be a whole percentage, 0-100'
+  } else if (isPercentage(input.start_soc_pct) && input.soc_pct < input.start_soc_pct) {
+    errors.soc_pct = 'Charge cannot be below the start charge'
+  }
+  if (isPresent(input.energy_kwh) && !(input.energy_kwh >= 0)) errors.energy_kwh = 'Energy must be 0 kWh or more'
   return errors
 }
 

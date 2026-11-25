@@ -85,6 +85,19 @@ export type RangeObservation = Owned &
     longitude: number | null
   }
 
+// One collector poll of the charge still going, insert-only (migration 0003, atto/19). There
+// is no updated_at: a row is never changed. The dashboard reads the newest one.
+export type ChargeProgress = Owned & {
+  vehicle_id: string
+  started_at: string
+  observed_at: string
+  start_soc_pct: number
+  soc_pct: number
+  // Null when the collector has no battery capacity to work energy out from.
+  energy_kwh: number | null
+  created_at: string
+}
+
 export type VehicleFeature = Owned &
   Timestamps & {
     vehicle_id: string
@@ -136,6 +149,7 @@ type InsertOf<Row, Extra extends keyof Row = never> = Optional<
 export type VehicleInsert = InsertOf<Vehicle>
 export type ChargingSessionInsert = InsertOf<ChargingSession, 'currency'>
 export type RangeObservationInsert = InsertOf<RangeObservation, 'observed_at'>
+export type ChargeProgressInsert = InsertOf<ChargeProgress>
 export type VehicleFeatureInsert = InsertOf<VehicleFeature>
 export type MaintenanceRecordInsert = InsertOf<MaintenanceRecord, 'currency'>
 export type NoteInsert = InsertOf<Note, 'body' | 'tags' | 'pinned'>
