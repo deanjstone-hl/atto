@@ -73,6 +73,17 @@ paths = [
   '''\.gitleaks\.toml$''',
 ]
 
+# The vendored links registry (frontend ADR-0004, atto/14) lists the tailnet services' host. The
+# registry is published in the public frontend repo, so the two vendored copies add nothing new
+# to the tree; no other file may name a tailnet host.
+[[allowlists]]
+description = "The tailnet host in the vendored links registry"
+targetRules = ["tailnet-hostname"]
+paths = [
+  '''(?:^|/)links\.json$''',
+  '''(?:^|/)src/lib/links\.ts$''',
+]
+
 # A Secrets Manager secret id on a bitwarden/sm-action map line in deploy.yml (atto/10): an id names a
 # secret and reads nothing without the machine account's token. gitleaks matches the whole line, so
 # the id is allowed only as `<uuid> > <ENV_NAME>` and nowhere else.
