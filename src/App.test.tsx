@@ -9,7 +9,9 @@ import { useThemePreference } from './hooks/use-theme-preference'
 import { ApiError, SessionEndedError, type ApiClient, type Identity } from './lib/api'
 import type { DashboardResult } from './lib/dashboard/types'
 
-// Wraps the real hook so a test can read the options App passes it.
+// Wraps the real hook so a test can read the options App passes it. The hook is called inside
+// App, so there is no seam to inject through.
+// oxlint-disable-next-line anti-slop/no-module-mocking -- spy that delegates to the real hook
 vi.mock('./hooks/use-theme-preference', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./hooks/use-theme-preference')>()
   return { ...actual, useThemePreference: vi.fn(actual.useThemePreference) }

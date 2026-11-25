@@ -23,6 +23,12 @@ export default defineConfig({
       rules: { "react/only-export-components": "off" },
     },
     {
+      // Vendored from the frontend links registry (ADR-0004): upstream's shape, and a local edit
+      // is lost on the next `shadcn add`.
+      files: ["src/lib/links-core.ts", "src/lib/links.ts"],
+      rules: { "anti-slop/no-conditional-empty-object-spread": "off" },
+    },
+    {
       files: ["**/*.test.{ts,tsx}", "**/test/**"],
       rules: { "anti-slop/no-module-mocking": "warn" },
     },
