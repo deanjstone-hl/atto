@@ -2,7 +2,7 @@
 // Every query binds user_id: that is the authorisation, the Worker-level replacement
 // for the row-level security the Supabase design relied on (ADR-005).
 
-import type { ChargingSession, RangeObservation, Vehicle, VehicleFeature } from '../src/lib/data-model/types'
+import type { ChargeProgress, ChargingSession, RangeObservation, Vehicle, VehicleFeature } from '../src/lib/data-model/types'
 import {
   RANGE_OBSERVATION_LIMIT,
   RECENT_SESSION_LIMIT,
@@ -56,10 +56,13 @@ export async function loadDashboard(db: D1Like, userId: string): Promise<Dashboa
         .all<Vehicle>(),
     )
     if (vehicle === undefined) {
-      return { kind: 'ready', data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] } }
+      return {
+        kind: 'ready',
+        data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [], chargeInProgress: null },
+      }
     }
 
-    const [sessions, observations, features, tripReadings] = await Promise.all([
+    const [sessions, observations, features, tripReadings, progress] = await Promise.all([
       rows<ChargingSession>('charging_sessions', () =>
         db
           .prepare(
@@ -97,6 +100,24 @@ export async function loadDashboard(db: D1Like, userId: string): Promise<Dashboa
           .bind(userId, vehicle.id, TRIP_READING_LIMIT)
           .all<ObservationRow>(),
       ),
+      // The newest poll of an open charge (atto/19). It is shown only while no later reading
+      // exists (a later one means the charge ended, or the poll was missed) and no finished
+      // session with the same start has landed.
+      rows<ChargeProgress>('charge_progress', () =>
+        db
+          .prepare(
+            `select * from charge_progress p where user_id = ?1 and vehicle_id = ?2
+               and not exists (select 1 from charging_sessions s
+                               where s.user_id = p.user_id and s.vehicle_id = p.vehicle_id
+                                 and s.started_at = p.started_at)
+               and not exists (select 1 from range_observations r
+                               where r.user_id = p.user_id and r.vehicle_id = p.vehicle_id
+                                 and r.observed_at > p.observed_at)
+             order by observed_at desc limit 1`,
+          )
+          .bind(userId, vehicle.id)
+          .all<ChargeProgress>(),
+      ),
     ])
 
     return {
@@ -107,6 +128,7 @@ export async function loadDashboard(db: D1Like, userId: string): Promise<Dashboa
         observations: observations.map(observation),
         features,
         tripReadings: tripReadings.map(observation),
+        chargeInProgress: progress[0] ?? null,
       },
     }
   } catch (error) {

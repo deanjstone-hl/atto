@@ -25,6 +25,7 @@ function devApi(): Plugin {
         observations: fixtureObservations,
         features: fixtureFeatures,
         tripReadings: fixtureTripReadings,
+        chargeInProgress: null,
       },
     },
   }

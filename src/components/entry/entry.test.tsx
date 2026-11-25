@@ -16,11 +16,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const NO_VEHICLE: DashboardResult = {
   kind: 'ready',
-  data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] },
+  data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [], chargeInProgress: null },
 }
 const WITH_VEHICLE: DashboardResult = {
   kind: 'ready',
-  data: { vehicle: fixtureVehicle, sessions: [], observations: [], features: [], tripReadings: [] },
+  data: { vehicle: fixtureVehicle, sessions: [], observations: [], features: [], tripReadings: [], chargeInProgress: null },
 }
 
 function fakeApi(result: DashboardResult = WITH_VEHICLE) {

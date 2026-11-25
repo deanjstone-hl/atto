@@ -40,7 +40,7 @@ describe('loadDashboard', () => {
   it('returns empty data, not an error, when the user has no vehicle', async () => {
     await expect(loadDashboard(d1Over(db), owner)).resolves.toEqual({
       kind: 'ready',
-      data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] },
+      data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [], chargeInProgress: null },
     })
   })
 
@@ -196,6 +196,81 @@ describe('loadDashboard', () => {
     })
   })
 
+  describe('the charge in progress (atto/19)', () => {
+    const addProgress = (
+      userId: string,
+      vehicleId: string,
+      startedAt: string,
+      observedAt: string,
+      socPct: number,
+      energyKwh: number | null = null,
+    ) =>
+      db
+        .prepare(
+          `insert into charge_progress (user_id, vehicle_id, started_at, observed_at, start_soc_pct, soc_pct, energy_kwh)
+           values (?, ?, ?, ?, 40, ?, ?)`,
+        )
+        .run(userId, vehicleId, startedAt, observedAt, socPct, energyKwh)
+
+    const load = async () => {
+      const result = await loadDashboard(d1Over(db), owner)
+      if (result.kind !== 'ready') throw new Error('expected ready')
+      return result.data
+    }
+
+    it('is null when no charge is open', async () => {
+      addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
+      expect((await load()).chargeInProgress).toBeNull()
+    })
+
+    it('is the newest poll of the open charge, the latest reading being that poll', async () => {
+      const vehicleId = addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
+      addProgress(owner, vehicleId, '2026-11-23T06:48:00Z', '2026-11-23T07:18:00Z', 44, 1.2)
+      addProgress(owner, vehicleId, '2026-11-23T06:48:00Z', '2026-11-23T07:48:00Z', 48, 2.4)
+      addObservation(owner, vehicleId, '2026-11-23T07:48:00Z')
+
+      expect((await load()).chargeInProgress).toMatchObject({
+        vehicle_id: vehicleId,
+        started_at: '2026-11-23T06:48:00Z',
+        observed_at: '2026-11-23T07:48:00Z',
+        start_soc_pct: 40,
+        soc_pct: 48,
+        energy_kwh: 2.4,
+      })
+    })
+
+    it('is null once a later reading shows the charge is no longer open', async () => {
+      const vehicleId = addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
+      addProgress(owner, vehicleId, '2026-11-23T06:48:00Z', '2026-11-23T07:18:00Z', 44, 1.2)
+      addObservation(owner, vehicleId, '2026-11-23T07:48:00Z')
+      expect((await load()).chargeInProgress).toBeNull()
+    })
+
+    it('is null once the finished session has landed', async () => {
+      const vehicleId = addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
+      addProgress(owner, vehicleId, '2026-11-23T06:48:00.000Z', '2026-11-23T07:18:00.000Z', 44, 1.2)
+      addObservation(owner, vehicleId, '2026-11-23T07:18:00.000Z')
+      addSession(owner, vehicleId, '2026-11-23T06:48:00.000Z')
+      expect((await load()).chargeInProgress).toBeNull()
+    })
+
+    it("never returns another vehicle's or another user's charge", async () => {
+      const mine = addVehicle(owner, 'Mine', '2026-01-02T00:00:00.000Z')
+      const other = addVehicle(owner, 'Other', '2026-01-01T00:00:00.000Z')
+      const theirs = addVehicle(stranger, 'Theirs', '2026-01-01T00:00:00.000Z')
+      addObservation(owner, mine, '2026-11-23T07:00:00Z')
+      addProgress(owner, other, '2026-11-23T06:48:00Z', '2026-11-23T07:18:00Z', 44)
+      addProgress(stranger, theirs, '2026-11-23T06:48:00Z', '2026-11-23T07:18:00Z', 44)
+      expect((await load()).chargeInProgress).toBeNull()
+    })
+
+    it('answers schema-missing, as for every table, until migration 0003 is applied', async () => {
+      addVehicle(owner, 'Atto', '2026-01-01T00:00:00.000Z')
+      db.exec('drop table charge_progress')
+      await expect(loadDashboard(d1Over(db), owner)).resolves.toEqual({ kind: 'schema-missing' })
+    })
+  })
+
   describe('authorisation', () => {
     it("never returns another user's rows", async () => {
       const theirs = addVehicle(stranger, 'Theirs', '2026-01-01T00:00:00.000Z')
@@ -207,7 +282,7 @@ describe('loadDashboard', () => {
 
       await expect(loadDashboard(d1Over(db), owner)).resolves.toEqual({
         kind: 'ready',
-        data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [] },
+        data: { vehicle: null, sessions: [], observations: [], features: [], tripReadings: [], chargeInProgress: null },
       })
     })
 
