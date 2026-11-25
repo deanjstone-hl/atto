@@ -35,7 +35,10 @@
 set -euo pipefail
 
 API="${CF_API_BASE:-https://api.cloudflare.com/client/v4}"
-APP_DOMAIN="atto1.myargus.cc"
+# The Access application's host comes from the links registry (frontend ADR-0004), never typed here.
+APP_URL="$(bash "$(dirname "${BASH_SOURCE[0]}")/../links.sh" url atto1)"
+APP_DOMAIN="${APP_URL#https://}"
+APP_DOMAIN="${APP_DOMAIN%/}"
 TOKEN_NAME="atto1-ingest"
 TOKEN_DURATION="8760h"
 POLICY_NAME="ingest"

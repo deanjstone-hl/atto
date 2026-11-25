@@ -9,7 +9,7 @@
 #
 # What it changes, and only when the state is not already as wanted (idempotent):
 #   1. Adds the Access policy `carplay-trigger` (Service Auth, include the existing service
-#      token `atto1-carplay-phone`) to the `atto1.myargus.cc` application, beside `ingest`. It
+#      token `atto1-carplay-phone`) to the `atto1` Access application, beside `ingest`. It
 #      is the whole-hostname application on purpose: each Access application has its own
 #      audience tag and the Worker checks the one ACCESS_AUD, so a token issued through a
 #      path-specific application would be refused as "wrong audience". The Worker's role check
@@ -41,7 +41,10 @@
 set -euo pipefail
 
 API="${CF_API_BASE:-https://api.cloudflare.com/client/v4}"
-APP_DOMAIN="atto1.myargus.cc"
+# The Access application's host comes from the links registry (frontend ADR-0004), never typed here.
+APP_URL="$(bash "$(dirname "${BASH_SOURCE[0]}")/../links.sh" url atto1)"
+APP_DOMAIN="${APP_URL#https://}"
+APP_DOMAIN="${APP_DOMAIN%/}"
 TOKEN_NAME="atto1-carplay-phone"
 POLICY_NAME="carplay-trigger"
 BW_ITEM="atto1 CarPlay trigger (Access service token)"
