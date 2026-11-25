@@ -1,7 +1,7 @@
 # One run of the BYD collector (ADR-006): read the car once, post to the Worker. Started by
 # atto1-collector.timer. Installed by scripts/owner-steps/77.sh, from a checkout of `deploy`.
 [Unit]
-Description=atto1 BYD collector (reads the car once, posts to atto1.myargus.cc)
+Description=atto1 BYD collector (reads the car once, posts to the atto1 Worker)
 
 [Service]
 Type=oneshot

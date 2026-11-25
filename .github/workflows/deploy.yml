@@ -43,7 +43,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy atto1 → atto1.myargus.cc
+    name: Deploy atto1 Worker
     # A manual dispatch from main (or any other ref) would deploy unpromoted code. A release
     # tag is the one other ref: the rollback card's dispatch, whose commit the checkout guard
     # then requires `deploy` to have held.

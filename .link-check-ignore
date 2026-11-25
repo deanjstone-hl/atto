@@ -1,0 +1,5 @@
+# Paths link-check does not scan for host literals (one git pathspec glob per line).
+# Test support builds fixture requests against the site name, as the worker tests do.
+worker/test-support/**
+# Documentation diagrams name the site, like the markdown docs.
+docs/diagrams/**
