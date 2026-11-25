@@ -28,6 +28,7 @@ describe('schema', () => {
       .prepare("select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name")
       .all()
     expect(rows).toEqual([
+      { name: 'charge_progress' },
       { name: 'charging_sessions' },
       { name: 'collect_acks' },
       { name: 'collect_triggers' },
