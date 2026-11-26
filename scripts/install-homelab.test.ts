@@ -201,6 +201,15 @@ describe('scripts/install-homelab.sh', () => {
     expect(result.calls.filter((call) => call.includes('restart'))).toEqual([])
   })
 
+  // atto/26: a requested stop ends the listener `inactive` (push.ts exits 0 on SIGTERM), and an
+  // install brings it back whatever the promotion changed, not only when collector code moved.
+  it('starts a stopped listener even when nothing under collector/ changed', () => {
+    const world = makeWorld({ collectorChanged: false })
+    const result = run(world, [], { STUB_ACTIVE: 'inactive' })
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.calls).toContain(`--user start ${listener}`)
+  })
+
   // docs/byd-collector.md: a login BYD keeps refusing stays down until the owner resets it.
   it('does not reset or restart a failed listener, and says so', () => {
     const world = makeWorld()
