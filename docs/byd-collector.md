@@ -109,6 +109,12 @@ minutes between starts and stops after five in an hour. To start it again after 
 `systemctl --user reset-failed atto1-collector-push.service && systemctl --user start atto1-collector-push.service`.
 To turn it off: `systemctl --user disable --now atto1-collector-push.service`.
 
+A requested stop (`systemctl --user stop`, a restart, the unit's 12-hour `RuntimeMaxSec`) is not a
+failure: `push.ts` forwards the SIGTERM to the listener and exits 0, so the unit ends `inactive`
+and the next promotion's install starts it. A listener that ends by itself exits 1, so the unit
+counts as a failure and `Restart=always` restarts it. Before atto/26 both exited 1, so a stop left the
+unit `failed` for good and no charge pushes were collected until the owner reset it.
+
 What it logs, so a missed charge stop can be told from a silent channel (atto/20): the listener
 writes one `push: charging=true|false|none` line to the journal for each push for the car (the charge
 state only: no VIN, position or payload; `none` is a push with no charge state), and `push.ts`
