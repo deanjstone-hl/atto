@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { describe, expect, it, vi } from 'vitest'
 import { COALESCE_MS, MAX_ATTEMPTS } from './trigger.ts'
-import { createPushQueue, nextCharge, parseSignal, seedFromState, type PushDeps } from './push.ts'
+import { createPushQueue, nextCharge, parseSignal, seedFromState, superviseListener, type PushDeps } from './push.ts'
 
 // The push listener's supervisor (atto/8): turns the listener's "charging" lines into
 // charge_start and charge_stop, and runs the collector once for each, no sooner than two
@@ -187,5 +188,48 @@ describe('seedFromState', () => {
         open: { startedAt: '2026-11-24T07:00:00.000Z', startSoc: 40, lastAt: '2026-11-24T09:00:00.000Z', lastSoc: 60, odometerKm: 1 },
       }),
     ).toBe(true)
+  })
+})
+
+// A requested stop (systemctl stop, a restart, the unit's RuntimeMaxSec) sends SIGTERM and is not a
+// failure: exiting 1 left the unit `failed`, which nothing restarts. A listener that ends by itself
+// still exits 1 so Restart=always brings it back (atto/26).
+describe('superviseListener', () => {
+  const setup = () => {
+    const listener = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) })
+    const signals = new EventEmitter()
+    const exit = vi.fn()
+    const errors: string[] = []
+    superviseListener({ listener, signals, exit, logError: (message) => errors.push(message) })
+    return { listener, signals, exit, errors }
+  }
+
+  it.each(['SIGTERM', 'SIGINT'])('forwards %s to the listener and exits 0 when it then closes', (name) => {
+    const { listener, signals, exit, errors } = setup()
+    signals.emit(name)
+    expect(listener.kill).toHaveBeenCalledOnce()
+    listener.emit('close', null, 'SIGTERM')
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0)
+    expect(errors.join('\n')).toMatch(/stop was requested/)
+  })
+
+  it('exits 1 when the listener ends by itself, so the supervisor restarts the unit', () => {
+    const { listener, exit, errors } = setup()
+    listener.emit('close', 1, null)
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1)
+    expect(errors.join('\n')).toMatch(/exit code 1/)
+  })
+
+  it('exits 1 when the listener is killed by a signal this process never received', () => {
+    const { listener, exit } = setup()
+    listener.emit('close', null, 'SIGKILL')
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1)
+  })
+
+  it('a stop request that arrives after the listener already ended does not change the exit code', () => {
+    const { listener, signals, exit } = setup()
+    listener.emit('close', 0, null)
+    signals.emit('SIGTERM')
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1)
   })
 })

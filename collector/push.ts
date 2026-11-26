@@ -129,6 +129,36 @@ export function createPushQueue(deps: PushDeps) {
   }
 }
 
+// The listener never ends by itself, so when it closes this process ends with it. A close after
+// SIGTERM or SIGINT is a requested stop (systemctl stop, a restart, RuntimeMaxSec): exit 0, so the
+// unit ends `inactive` and an install can start it. Any other close is a failure: exit 1, so
+// Restart=always brings both back. A unit left `failed` by a stop was never restarted (atto/26).
+export function superviseListener(options: {
+  listener: { on: (event: 'close', handler: (code: number | null, signal: string | null) => void) => unknown; kill: () => unknown }
+  signals: { on: (event: 'SIGTERM' | 'SIGINT', handler: () => void) => unknown }
+  exit: (code: number) => void
+  logError: (message: string) => void
+}): void {
+  const { listener, signals, exit, logError } = options
+  let stopRequested = false
+  for (const name of ['SIGTERM', 'SIGINT'] as const) {
+    signals.on(name, () => {
+      stopRequested = true
+      listener.kill()
+    })
+  }
+  listener.on('close', (code, signal) => {
+    const ended = signal ?? `exit code ${code}`
+    if (stopRequested) {
+      logError(`the listener ended (${ended}) after a stop was requested`)
+      exit(0)
+      return
+    }
+    logError(`the listener ended (${ended})`)
+    exit(1)
+  })
+}
+
 const runFile = promisify(execFile)
 
 // The run goes through flock on the lock both timers' units hold, so two runs never read the
@@ -195,12 +225,7 @@ async function main(): Promise<void> {
     console.error(`atto1-collector-push: could not start the listener: ${error.message}`)
     process.exitCode = 1
   })
-  // The listener never ends by itself; when it does, exit so systemd restarts both.
-  listener.on('close', (code, signal) => {
-    console.error(`atto1-collector-push: the listener ended (${signal ?? `exit code ${code}`})`)
-    process.exit(1)
-  })
-  for (const name of ['SIGTERM', 'SIGINT'] as const) process.on(name, () => listener.kill())
+  superviseListener({ listener, signals: process, exit: (code) => process.exit(code), logError: (message) => console.error(`atto1-collector-push: ${message}`) })
   log('listening for charge pushes')
   try {
     queue.seed(seedFromState(await stateFile.load()))
