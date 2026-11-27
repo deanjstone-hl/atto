@@ -216,9 +216,11 @@ The release scripts in `scripts/ci/` (`release-with-retry.sh`, `release-proof.sh
 
 ## Contributing
 
-Work is tracked in [GitHub issues](https://github.com/deanjstone/atto/issues). Agents work trunk-based:
-small commits straight to `main`, each after a green `pnpm run check` (CI runs the same command on
-every push to `main`; the script resolves the repo root from its own path, so
+Work is tracked in [GitHub issues](https://github.com/deanjstone/atto/issues). Agents work branch + PR:
+a branch off `origin/main` in their own worktree, small commits pushed regularly, a draft PR on the first
+push, `pnpm run check` once before marking it ready, then `gh pr merge --rebase --delete-branch` once every
+check on the head SHA is green (never a direct push to `main`; rebase and `--force-with-lease` on your own PR
+branch only). CI runs the same command on every PR and push to `main`; the script resolves the repo root from its own path, so
 `bash /path/to/atto/scripts/check.sh` checks this tree from any directory). Commits follow
 Conventional Commits and drive semantic-release; see [CONTRIBUTING.md](CONTRIBUTING.md). Agents
 start at [AGENTS.md](AGENTS.md).
